@@ -45,6 +45,19 @@ export interface AppConfig {
   startWithWindows: boolean;
   dock: DockConfig;
   windows: WindowsConfig;
+  display: DisplayConfig;
+}
+
+export interface DisplayConfig {
+  /** Percent for each screen, by its Windows device name. */
+  brightness: Record<string, number>;
+}
+
+export interface ScreenInfo {
+  id: string;
+  name: string;
+  primary: boolean;
+  brightness: number;
 }
 
 export type WindowsMode = "light" | "dark";

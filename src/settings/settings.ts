@@ -9,6 +9,7 @@ import {
   SavedTheme,
   Theme,
   WidgetId,
+  ScreenInfo,
   WindowsLook,
 } from "../config";
 import { settingsPalette } from "./palette";
@@ -27,6 +28,7 @@ const START_LOGO = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3h8.
 
 const FORMATS: Record<string, (value: number) => string> = {
   percent: (value) => `${Math.round(value * 100)}%`,
+  percent100: (value) => `${value}%`,
   px: (value) => `${value}px`,
   deg: (value) => `${value}°`,
   times: (value) => `${value.toFixed(2)}×`,
@@ -295,6 +297,56 @@ function renderPreview() {
   fitPreview();
 }
 
+/** Applies right away while the slider moves, and keeps the value for next time. */
+async function setBrightness(id: string, percent: number, slider: HTMLInputElement) {
+  const applied = await invoke<number>("set_brightness", { id, percent });
+  appConfig.display.brightness[id] = applied;
+  if (applied !== percent) {
+    // Windows refused to go that dark, so the slider shows what it allowed.
+    slider.value = String(applied);
+    showOutput(slider);
+  }
+  scheduleSave();
+}
+
+async function renderScreens() {
+  const screens = await invoke<ScreenInfo[]>("get_screens");
+  const container = document.querySelector("#screens")!;
+  if (screens.length === 0) {
+    container.innerHTML = `<p class="hint">Nenhuma tela encontrada.</p>`;
+    return;
+  }
+  container.replaceChildren(
+    ...screens.map((screen) => {
+      const row = document.createElement("label");
+      row.className = "slider";
+      const name = document.createElement("span");
+      name.textContent = screen.name;
+      if (screen.primary) {
+        const badge = document.createElement("small");
+        badge.textContent = "principal";
+        name.append(badge);
+      }
+      const slider = document.createElement("input");
+      slider.type = "range";
+      slider.min = "50";
+      slider.max = "100";
+      slider.step = "1";
+      slider.value = String(screen.brightness);
+      slider.dataset.format = "percent100";
+      slider.dataset.screen = screen.id;
+      slider.setAttribute("aria-label", `Brilho de ${screen.name}`);
+      slider.addEventListener("input", () => {
+        showOutput(slider);
+        setBrightness(screen.id, slider.valueAsNumber, slider).catch(showError);
+      });
+      row.append(name, slider, document.createElement("output"));
+      showOutput(slider);
+      return row;
+    }),
+  );
+}
+
 function showPage(name: string) {
   const known = document.querySelector(`.page[data-page="${name}"]`) !== null;
   const page = known ? name : DEFAULT_PAGE;
@@ -304,6 +356,8 @@ function showPage(name: string) {
     if (!section.hidden) stage.hidden = section.dataset.module !== "dock";
   }
   if (!stage.hidden) fitPreview();
+  // Screens can be plugged in or out while the window is open.
+  if (page === "brightness") renderScreens().catch(showError);
   for (const button of document.querySelectorAll<HTMLElement>("[data-nav]")) {
     if (button.dataset.nav === page) button.setAttribute("aria-current", "page");
     else button.removeAttribute("aria-current");
@@ -641,6 +695,14 @@ function bindEvents() {
     renderThemes();
     refreshLook();
     scheduleSave();
+  });
+
+  document.querySelector("#full-brightness")!.addEventListener("click", async () => {
+    for (const slider of document.querySelectorAll<HTMLInputElement>("[data-screen]")) {
+      slider.value = "100";
+      showOutput(slider);
+      await setBrightness(slider.dataset.screen!, 100, slider).catch(showError);
+    }
   });
 
   document.querySelector("#quit")!.addEventListener("click", () => {

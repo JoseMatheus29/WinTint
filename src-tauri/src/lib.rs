@@ -1,8 +1,10 @@
 //! WinTint: personalizes Windows through independent modules, each with its own
-//! section of the settings file: the dock and the colors of Windows itself.
+//! section of the settings file: the dock, the colors of Windows and the
+//! brightness of each screen.
 
 mod color;
 mod config;
+mod display;
 mod dock;
 mod win;
 mod windows_theme;
@@ -85,6 +87,7 @@ fn open_config_file(app: AppHandle) -> Result<(), String> {
 fn apply_config(app: &AppHandle, config: AppConfig) {
     dock::apply(app, &config.dock);
     windows_theme::apply(app, &config);
+    display::apply(app, &config.display);
     if let Some(toggle) = app.state::<AppState>().dock_toggle.lock().unwrap().as_ref() {
         let _ = toggle.set_checked(config.dock.enabled);
     }
@@ -190,6 +193,7 @@ pub fn run() {
             build_tray(handle, dock_config.is_none_or(|dock| dock.enabled))?;
             dock::start(handle, dock_config);
             windows_theme::start(handle, config.as_ref());
+            display::start(handle, config.as_ref().map(|config| &config.display));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -215,14 +219,19 @@ pub fn run() {
             dock::get_widget_data,
             dock::set_volume,
             dock::media_action,
-            windows_theme::get_windows_look
+            windows_theme::get_windows_look,
+            display::get_screens,
+            display::set_brightness
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| match event {
             // A disabled dock leaves no windows open, which must not end the program.
             RunEvent::ExitRequested { code: None, api, .. } => api.prevent_exit(),
-            RunEvent::Exit => dock::shutdown(app),
+            RunEvent::Exit => {
+                display::shutdown(app);
+                dock::shutdown(app);
+            }
             _ => {}
         });
 }

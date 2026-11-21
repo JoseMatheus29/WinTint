@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::{AppHandle, Manager};
 
+use crate::display::config::DisplayConfig;
 use crate::dock::config::DockConfig;
 use crate::windows_theme::config::WindowsConfig;
 
@@ -23,6 +24,7 @@ pub struct AppConfig {
     pub start_with_windows: bool,
     pub dock: DockConfig,
     pub windows: WindowsConfig,
+    pub display: DisplayConfig,
 }
 
 impl Default for AppConfig {
@@ -32,6 +34,7 @@ impl Default for AppConfig {
             start_with_windows: false,
             dock: DockConfig::default(),
             windows: WindowsConfig::default(),
+            display: DisplayConfig::default(),
         }
     }
 }
@@ -41,6 +44,7 @@ impl AppConfig {
         self.version = VERSION;
         self.dock.normalize();
         self.windows.normalize();
+        self.display.normalize();
     }
 }
 
@@ -66,6 +70,7 @@ fn migrate(text: &str) -> Result<AppConfig, serde_json::Error> {
         start_with_windows,
         dock: serde_json::from_value(legacy)?,
         windows: WindowsConfig::default(),
+        display: DisplayConfig::default(),
     })
 }
 

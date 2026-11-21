@@ -963,3 +963,14 @@ textarea {
   border-radius: 8px;
   box-shadow: 0 0 0 1px var(--line);
 }
+
+/* Brightness */
+
+.screens .slider + .slider {
+  margin-top: 6px;
+}
+
+.screens .slider small {
+  display: inline;
+  margin-left: 6px;
+}
