@@ -2,7 +2,15 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { barBackground, patternImage, PRESETS, withAlpha } from "../dock/appearance";
-import { AppConfig, AppWindow, DockConfig, SavedTheme, Theme, WidgetId } from "../config";
+import {
+  AppConfig,
+  AppWindow,
+  DockConfig,
+  SavedTheme,
+  Theme,
+  WidgetId,
+  WindowsLook,
+} from "../config";
 import { settingsPalette } from "./palette";
 import { batteryIcon, ICONS, wifiIcon } from "../dock/widgets";
 
@@ -47,6 +55,7 @@ let saveTimer: number | undefined;
 let runningExes: string[] = [];
 let previewContent = "";
 let windowColors = "";
+let lookRequest = 0;
 const icons = new Map<string, Promise<string | null>>();
 
 function iconFor(path: string): Promise<string | null> {
@@ -76,19 +85,22 @@ function showError(error: unknown) {
 }
 
 function target(control: Control): Values {
-  const owner = control.dataset.app
+  const { app, win, theme, clock } = control.dataset;
+  const owner = app
     ? appConfig
-    : control.dataset.theme
-      ? config.theme
-      : control.dataset.clock
-        ? config.clock
-        : config;
+    : win
+      ? appConfig.windows
+      : theme
+        ? config.theme
+        : clock
+          ? config.clock
+          : config;
   return owner as unknown as Values;
 }
 
 function controlKey(control: Control): string {
-  const { app, theme, clock, key } = control.dataset;
-  return app ?? theme ?? clock ?? key!;
+  const { app, win, theme, clock, key } = control.dataset;
+  return app ?? win ?? theme ?? clock ?? key!;
 }
 
 function showOutput(control: Control) {
@@ -104,7 +116,9 @@ function showOutput(control: Control) {
 
 function controls(): Control[] {
   return Array.from(
-    form.querySelectorAll<Control>("[data-app], [data-key], [data-theme], [data-clock]"),
+    form.querySelectorAll<Control>(
+      "[data-app], [data-win], [data-key], [data-theme], [data-clock]",
+    ),
   );
 }
 
@@ -130,6 +144,18 @@ function refreshLook() {
   refreshOptionalControls();
   document.querySelector<HTMLElement>("#monitor")!.dataset.align = config.alignment;
   renderPreview();
+  renderWindowsLook().catch(showError);
+}
+
+/** Shows the mode and accent the Windows module applies, as Rust works them out. */
+async function renderWindowsLook() {
+  const request = ++lookRequest;
+  const look = await invoke<WindowsLook>("get_windows_look", { config: appConfig });
+  // An older answer must not replace the one for the latest change.
+  if (request !== lookRequest) return;
+  document.querySelector<HTMLElement>("#win-look-swatch")!.style.background = look.accent;
+  document.querySelector("#win-look-text")!.textContent =
+    `${look.dark ? "Modo escuro" : "Modo claro"} com destaque ${look.accent}`;
 }
 
 function applyPalette() {
@@ -161,10 +187,17 @@ function applyPalette() {
 /** Settings that only matter once another one is turned on stay out of the way. */
 function refreshOptionalControls() {
   const values = { ...config, ...config.theme } as unknown as Values;
+  for (const [key, value] of Object.entries(appConfig.windows)) {
+    values[`win.${key}`] = value;
+  }
   const off = new Set(["none", "off"]);
   for (const element of document.querySelectorAll<HTMLElement>("[data-show-when]")) {
-    const value = values[element.dataset.showWhen!];
-    element.hidden = !value || off.has(String(value));
+    // "!key" shows the element while the setting is off instead.
+    const rule = element.dataset.showWhen!;
+    const inverted = rule.startsWith("!");
+    const value = values[inverted ? rule.slice(1) : rule];
+    const on = Boolean(value) && !off.has(String(value));
+    element.hidden = on === inverted;
   }
 }
 
@@ -267,7 +300,10 @@ function showPage(name: string) {
   const page = known ? name : DEFAULT_PAGE;
   for (const section of document.querySelectorAll<HTMLElement>(".page")) {
     section.hidden = section.dataset.page !== page;
+    // The dock preview only means something on the dock's own pages.
+    if (!section.hidden) stage.hidden = section.dataset.module !== "dock";
   }
+  if (!stage.hidden) fitPreview();
   for (const button of document.querySelectorAll<HTMLElement>("[data-nav]")) {
     if (button.dataset.nav === page) button.setAttribute("aria-current", "page");
     else button.removeAttribute("aria-current");
@@ -636,6 +672,7 @@ try {
       refreshControls();
     }
   });
+  listen<string>("windows-theme-error", ({ payload }) => showError(payload));
   // Icons dragged on the dock must not be undone by the next save from here.
   listen<AppConfig>("dock-order-changed", ({ payload }) => {
     config.apps = payload.dock.apps;

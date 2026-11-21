@@ -44,6 +44,24 @@ export interface AppConfig {
   version: number;
   startWithWindows: boolean;
   dock: DockConfig;
+  windows: WindowsConfig;
+}
+
+export type WindowsMode = "light" | "dark";
+
+export interface WindowsConfig {
+  enabled: boolean;
+  followDock: boolean;
+  mode: WindowsMode;
+  accent: string;
+  accentOnTitleBars: boolean;
+  accentOnStart: boolean;
+}
+
+/** What the Windows module applies for a config. */
+export interface WindowsLook {
+  dark: boolean;
+  accent: string;
 }
 
 export interface DockConfig {

@@ -1,4 +1,4 @@
-//! Thin wrappers over the Win32 calls the dock needs.
+//! Thin wrappers over the Win32 calls the modules need.
 
 use std::ffi::c_void;
 use std::mem::size_of;
@@ -6,9 +6,9 @@ use std::path::Path;
 use std::sync::Mutex;
 
 use base64::Engine;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use windows::Win32::Foundation::{
-    CloseHandle, ERROR_FILE_NOT_FOUND, ERROR_SUCCESS, HWND, LPARAM, POINT, RECT, SIZE,
+    CloseHandle, ERROR_FILE_NOT_FOUND, ERROR_SUCCESS, HWND, LPARAM, POINT, RECT, SIZE, WPARAM,
 };
 use windows::Win32::Graphics::Dwm::{
     DWMWA_BORDER_COLOR, DWMWA_CAPTION_COLOR, DWMWA_CLOAKED, DWMWA_TEXT_COLOR,
@@ -19,8 +19,10 @@ use windows::Win32::Graphics::Gdi::{
     DeleteObject, GetDIBits, GetMonitorInfoW, GetObjectW, HBITMAP, HGDIOBJ,
     MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow,
 };
+use windows::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
 use windows::Win32::System::Registry::{
-    HKEY_CURRENT_USER, REG_SZ, RegDeleteKeyValueW, RegSetKeyValueW,
+    HKEY_CURRENT_USER, REG_BINARY, REG_DWORD, REG_SZ, REG_VALUE_TYPE, RRF_RT_ANY, RegDeleteKeyValueW,
+    RegGetValueW, RegSetKeyValueW,
 };
 use windows::Win32::System::Com::{
     COINIT_APARTMENTTHREADED, CoInitializeEx, CoUninitialize,
@@ -39,13 +41,13 @@ use windows::Win32::UI::Shell::{
 use windows::Win32::UI::WindowsAndMessaging::{
     EnumChildWindows, EnumWindows, FindWindowExW, FindWindowW, GW_OWNER, GWL_EXSTYLE,
     GetClassNameW, GetCursorPos, GetForegroundWindow, GetWindow, GetWindowLongPtrW, GetWindowRect,
-    GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindow, IsWindowVisible, IsZoomed,
-    MONITORINFOF_PRIMARY, SPI_GETWORKAREA, SW_HIDE,
+    GetWindowTextW, GetWindowThreadProcessId, HWND_BROADCAST, IsIconic, IsWindow, IsWindowVisible,
+    IsZoomed, MONITORINFOF_PRIMARY, SMTO_ABORTIFHUNG, SendMessageTimeoutW, WM_SETTINGCHANGE, SPI_GETWORKAREA, SW_HIDE,
     SW_MINIMIZE, SW_RESTORE, SW_SHOWNA, SW_SHOWNORMAL, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS,
     SetForegroundWindow, SetWindowLongPtrW, ShowWindow, ShowWindowAsync, SystemParametersInfoW,
     WS_EX_APPWINDOW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
 };
-use windows::core::{BOOL, HSTRING, PCWSTR, PWSTR, w};
+use windows::core::{BOOL, HRESULT, HSTRING, PCSTR, PCWSTR, PWSTR, w};
 
 const ICON_SIZE: i32 = 128;
 const MAX_IMAGE_BYTES: u64 = 3 * 1024 * 1024;
@@ -588,4 +590,153 @@ fn encode_png(width: u32, height: u32, pixels: &[u8]) -> Option<String> {
 
     let encoded = base64::engine::general_purpose::STANDARD.encode(&bytes);
     Some(format!("data:image/png;base64,{encoded}"))
+}
+
+/// A raw registry value, kept so it can be written back exactly as it was.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct RegValue {
+    pub kind: u32,
+    pub data: Vec<u8>,
+}
+
+impl RegValue {
+    pub fn as_dword(&self) -> Option<u32> {
+        let bytes: [u8; 4] = self.data.as_slice().try_into().ok()?;
+        (self.kind == REG_DWORD.0).then(|| u32::from_le_bytes(bytes))
+    }
+}
+
+pub fn read_user_value(key: &str, name: &str) -> Option<RegValue> {
+    let (key, name) = (HSTRING::from(key), HSTRING::from(name));
+    let mut kind = REG_VALUE_TYPE::default();
+    let mut size = 0u32;
+    unsafe {
+        let probe = RegGetValueW(
+            HKEY_CURRENT_USER,
+            &key,
+            &name,
+            RRF_RT_ANY,
+            Some(&mut kind as *mut _),
+            None,
+            Some(&mut size as *mut _),
+        );
+        if probe != ERROR_SUCCESS {
+            return None;
+        }
+        let mut data = vec![0u8; size as usize];
+        let read = RegGetValueW(
+            HKEY_CURRENT_USER,
+            &key,
+            &name,
+            RRF_RT_ANY,
+            Some(&mut kind as *mut _),
+            Some(data.as_mut_ptr() as *mut c_void),
+            Some(&mut size as *mut _),
+        );
+        if read != ERROR_SUCCESS {
+            return None;
+        }
+        data.truncate(size as usize);
+        Some(RegValue { kind: kind.0, data })
+    }
+}
+
+/// Creates the key when it is missing.
+pub fn write_user_value(key: &str, name: &str, value: &RegValue) -> Result<(), String> {
+    let result = unsafe {
+        RegSetKeyValueW(
+            HKEY_CURRENT_USER,
+            &HSTRING::from(key),
+            &HSTRING::from(name),
+            value.kind,
+            Some(value.data.as_ptr() as *const c_void),
+            value.data.len() as u32,
+        )
+    };
+    if result == ERROR_SUCCESS {
+        Ok(())
+    } else {
+        Err(format!(r"Não foi possível gravar {key}\{name} ({})", result.0))
+    }
+}
+
+pub fn set_user_dword(key: &str, name: &str, value: u32) -> Result<(), String> {
+    let data = value.to_le_bytes().to_vec();
+    write_user_value(key, name, &RegValue { kind: REG_DWORD.0, data })
+}
+
+pub fn set_user_binary(key: &str, name: &str, data: &[u8]) -> Result<(), String> {
+    let data = data.to_vec();
+    write_user_value(key, name, &RegValue { kind: REG_BINARY.0, data })
+}
+
+pub fn delete_user_value(key: &str, name: &str) {
+    unsafe {
+        let _ = RegDeleteKeyValueW(HKEY_CURRENT_USER, &HSTRING::from(key), &HSTRING::from(name));
+    }
+}
+
+/// What dwmapi.dll keeps for the accent shown in title bars.
+#[repr(C)]
+#[derive(Default)]
+struct ColorizationParams {
+    color: u32,
+    afterglow: u32,
+    color_balance: u32,
+    afterglow_balance: u32,
+    blur_balance: u32,
+    glass_reflection_intensity: u32,
+    opaque_blend: u32,
+}
+
+/// Repaints title bars in the new accent at once. dwmapi.dll exports these two
+/// functions by number only: 127 reads the colors and 131 sets them.
+pub fn set_dwm_colorization(argb: u32) {
+    type GetParams = unsafe extern "system" fn(*mut ColorizationParams) -> HRESULT;
+    type SetParams = unsafe extern "system" fn(*const ColorizationParams, u32) -> HRESULT;
+    unsafe {
+        // Already loaded, since the dock calls into it.
+        let Ok(module) = GetModuleHandleW(w!("dwmapi.dll")) else {
+            return;
+        };
+        let get = GetProcAddress(module, PCSTR(127 as *const u8));
+        let set = GetProcAddress(module, PCSTR(131 as *const u8));
+        let (Some(get), Some(set)) = (get, set) else {
+            return;
+        };
+        let get: GetParams = std::mem::transmute(get);
+        let set: SetParams = std::mem::transmute(set);
+        let mut params = ColorizationParams::default();
+        if get(&mut params).is_err() {
+            return;
+        }
+        params.color = argb;
+        params.afterglow = argb;
+        let _ = set(&params, 0);
+    }
+}
+
+/// Tells every window that the colors changed, as the Settings app does.
+pub fn broadcast_color_change() {
+    let area = w!("ImmersiveColorSet");
+    unsafe {
+        let _ = SendMessageTimeoutW(
+            HWND_BROADCAST,
+            WM_SETTINGCHANGE,
+            WPARAM(0),
+            LPARAM(area.as_ptr() as isize),
+            SMTO_ABORTIFHUNG,
+            1000,
+            None,
+        );
+    }
+}
+
+/// Removes a key that only tests create.
+#[cfg(test)]
+pub fn delete_test_key(key: &str) {
+    use windows::Win32::System::Registry::RegDeleteKeyW;
+    unsafe {
+        let _ = RegDeleteKeyW(HKEY_CURRENT_USER, &HSTRING::from(key));
+    }
 }

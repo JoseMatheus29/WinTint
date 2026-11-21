@@ -1,6 +1,9 @@
 # WinTint
 
-Personalização do Windows feita com Tauri 2, Rust e TypeScript. Cada recurso é um módulo que pode ser ligado e desligado. Por enquanto existe um: a dock.
+Personalização do Windows feita com Tauri 2, Rust e TypeScript. Cada recurso é um módulo que pode ser ligado e desligado:
+
+- **Dock:** barra com apps e widgets, que pode substituir a barra de tarefas.
+- **Windows:** modo claro ou escuro e cor de destaque do sistema, seguindo o tema da dock ou escolhidos à mão. Antes da primeira mudança, o WinTint guarda os valores originais em `windows-original.json`, e desligar o módulo os devolve.
 
 ## Comandos
 
@@ -33,6 +36,8 @@ As mudanças valem na hora e ficam salvas em `%APPDATA%\com.jmatheus.wintint\con
 - `src-tauri/src/lib.rs`: inicialização, bandeja, janela de personalização e comandos do app.
 - `src-tauri/src/config.rs`: leitura do `config.json` e importação do Dock JM.
 - `src-tauri/src/win.rs`: chamadas à API do Windows usadas pelos módulos.
+- `src-tauri/src/color.rs`: conversões de cor compartilhadas.
+- `src-tauri/src/windows_theme/`: módulo Windows, com o modo, a cor de destaque e a restauração do original.
 - `src-tauri/src/dock/`: módulo da dock.
   - `mod.rs`: janela da dock e monitoramento do cursor e das janelas.
   - `config.rs`: opções da dock.

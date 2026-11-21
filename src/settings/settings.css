@@ -929,3 +929,37 @@ textarea {
   margin: 0;
   overflow-wrap: anywhere;
 }
+
+/* Windows colors */
+
+.stage[hidden] + .pages {
+  border-radius: 14px;
+}
+
+.main-toggle {
+  margin-bottom: 12px;
+  font-weight: 600;
+}
+
+.main-toggle small {
+  font-weight: 400;
+}
+
+.look {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 4px;
+  padding: 10px;
+  border-radius: 10px;
+  background: var(--field);
+  font-size: 13px;
+}
+
+.look-swatch {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  box-shadow: 0 0 0 1px var(--line);
+}

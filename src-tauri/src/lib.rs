@@ -1,9 +1,11 @@
-//! WinTint: personalizes Windows through independent modules. The dock is the
-//! first one; each module keeps its own section of the settings file.
+//! WinTint: personalizes Windows through independent modules, each with its own
+//! section of the settings file: the dock and the colors of Windows itself.
 
+mod color;
 mod config;
 mod dock;
 mod win;
+mod windows_theme;
 
 use std::process::Command;
 use std::sync::Mutex;
@@ -82,6 +84,7 @@ fn open_config_file(app: AppHandle) -> Result<(), String> {
 /// Hands a stored config to every module, the tray and the open windows.
 fn apply_config(app: &AppHandle, config: AppConfig) {
     dock::apply(app, &config.dock);
+    windows_theme::apply(app, &config);
     if let Some(toggle) = app.state::<AppState>().dock_toggle.lock().unwrap().as_ref() {
         let _ = toggle.set_checked(config.dock.enabled);
     }
@@ -186,6 +189,7 @@ pub fn run() {
             let dock_config = config.as_ref().map(|config| &config.dock);
             build_tray(handle, dock_config.is_none_or(|dock| dock.enabled))?;
             dock::start(handle, dock_config);
+            windows_theme::start(handle, config.as_ref());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -210,7 +214,8 @@ pub fn run() {
             dock::open_task_manager,
             dock::get_widget_data,
             dock::set_volume,
-            dock::media_action
+            dock::media_action,
+            windows_theme::get_windows_look
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

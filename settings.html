@@ -55,6 +55,10 @@
 
           <div class="group" role="group" aria-labelledby="group-app">
           <p class="group-head"><span id="group-app">WinTint</span></p>
+          <button type="button" data-nav="windows-colors">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1"/><rect x="13" y="4" width="7" height="7" rx="1"/><rect x="4" y="13" width="7" height="7" rx="1"/><rect x="13" y="13" width="7" height="7" rx="1"/></svg>
+            Cores do Windows
+          </button>
           <button type="button" data-nav="general">
             <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 3v2.500M12 18.500V21M3 12h2.500M18.500 12H21M5.600 5.600l1.800 1.800M16.600 16.600l1.800 1.800M5.600 18.400l1.800-1.800M16.600 7.400l1.800-1.800"/></svg>
             Geral
@@ -69,7 +73,7 @@
         </div>
 
         <div id="pages" class="pages">
-          <section class="page" data-page="themes">
+          <section class="page" data-page="themes" data-module="dock">
             <h1>Temas</h1>
             <div id="presets" class="themes"></div>
             <h2>Meus temas</h2>
@@ -87,7 +91,7 @@
             </div>
           </section>
 
-          <section class="page" data-page="style">
+          <section class="page" data-page="style" data-module="dock">
             <h1>Aparência</h1>
             <div class="cards">
               <div class="card">
@@ -203,7 +207,7 @@
             </div>
           </section>
 
-          <section class="page" data-page="layout">
+          <section class="page" data-page="layout" data-module="dock">
             <h1>Posição e tamanho</h1>
             <div class="cards">
               <div class="card">
@@ -267,7 +271,7 @@
             </div>
           </section>
 
-          <section class="page" data-page="apps">
+          <section class="page" data-page="apps" data-module="dock">
             <h1>Apps</h1>
             <div class="cards">
               <div class="card">
@@ -284,7 +288,7 @@
             </div>
           </section>
 
-          <section class="page" data-page="widgets">
+          <section class="page" data-page="widgets" data-module="dock">
             <h1>Widgets</h1>
             <div class="cards">
               <div class="card">
@@ -309,7 +313,7 @@
             </div>
           </section>
 
-          <section class="page" data-page="behavior">
+          <section class="page" data-page="behavior" data-module="dock">
             <h1>Comportamento</h1>
             <div class="toggles">
               <label class="toggle">
@@ -336,7 +340,7 @@
             </p>
           </section>
 
-          <section class="page" data-page="advanced">
+          <section class="page" data-page="advanced" data-module="dock">
             <h1>Avançado</h1>
             <div class="card">
               <h2>CSS personalizado</h2>
@@ -353,7 +357,56 @@
             </div>
           </section>
 
-          <section class="page" data-page="general">
+          <section class="page" data-page="windows-colors" data-module="app">
+            <h1>Cores do Windows</h1>
+            <label class="toggle main-toggle">
+              <span>
+                Aplicar ao Windows
+                <small>Desligar devolve as cores que o Windows tinha antes do WinTint.</small>
+              </span>
+              <input type="checkbox" class="switch" data-win="enabled" />
+            </label>
+            <div class="cards">
+              <div class="card">
+                <label class="card-toggle">
+                  <h2>Seguir o tema da dock</h2>
+                  <input type="checkbox" class="switch" data-win="followDock" />
+                </label>
+                <div class="look">
+                  <span id="win-look-swatch" class="look-swatch"></span>
+                  <span id="win-look-text"></span>
+                </div>
+                <div data-show-when="!win.followDock">
+                  <h3>Modo</h3>
+                  <div class="segmented" role="radiogroup" aria-label="Modo do Windows">
+                    <label><input type="radio" name="winMode" data-win="mode" value="light" /><span>Claro</span></label>
+                    <label><input type="radio" name="winMode" data-win="mode" value="dark" /><span>Escuro</span></label>
+                  </div>
+                  <div class="colors">
+                    <label><input type="color" data-win="accent" /><span>Cor de destaque</span></label>
+                  </div>
+                </div>
+              </div>
+
+              <div class="card">
+                <h2>Onde usar a cor de destaque</h2>
+                <label class="row">
+                  <span>Barras de título e bordas</span>
+                  <input type="checkbox" class="switch" data-win="accentOnTitleBars" />
+                </label>
+                <label class="row">
+                  <span>
+                    Menu Iniciar e barra de tarefas
+                    <small>Só aparece no modo escuro.</small>
+                  </span>
+                  <input type="checkbox" class="switch" data-win="accentOnStart" />
+                </label>
+              </div>
+            </div>
+            <p class="hint">Alguns programas só trocam de cor quando são reabertos.</p>
+          </section>
+
+          <section class="page" data-page="general" data-module="app">
             <h1>Geral</h1>
             <div class="toggles">
               <label class="toggle">
