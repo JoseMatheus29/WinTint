@@ -1,4 +1,4 @@
-import { DockConfig, Edge, SavedTheme, Theme } from "./config";
+import { DockConfig, Edge, SavedTheme, Theme } from "../config";
 
 const BASE_THEME: Theme = {
   barColor: "#18181c",

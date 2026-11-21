@@ -60,7 +60,9 @@ const NOT_FULLSCREEN_APPS: [&str; 6] = [
     "Windows.UI.Core.CoreWindow",
 ];
 const AUTOSTART_KEY: PCWSTR = w!(r"Software\Microsoft\Windows\CurrentVersion\Run");
-const AUTOSTART_VALUE: PCWSTR = w!("Dock JM");
+const AUTOSTART_VALUE: PCWSTR = w!("WinTint");
+/// The entry written while the app was called Dock JM.
+const LEGACY_AUTOSTART_VALUE: PCWSTR = w!("Dock JM");
 
 static ICON_LOCK: Mutex<()> = Mutex::new(());
 
@@ -170,6 +172,13 @@ pub fn set_autostart(enabled: bool) -> Result<(), String> {
         Ok(())
     } else {
         Err(format!("Não foi possível alterar o início automático ({})", result.0))
+    }
+}
+
+/// Deletes the entry left by Dock JM, so the app never starts twice.
+pub fn remove_legacy_autostart() {
+    unsafe {
+        let _ = RegDeleteKeyValueW(HKEY_CURRENT_USER, AUTOSTART_KEY, LEGACY_AUTOSTART_VALUE);
     }
 }
 

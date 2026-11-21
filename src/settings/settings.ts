@@ -1,10 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
-import { barBackground, patternImage, PRESETS, withAlpha } from "./appearance";
-import { AppWindow, DockConfig, SavedTheme, Theme, WidgetId } from "./config";
-import { settingsPalette } from "./settings-palette";
-import { batteryIcon, ICONS, wifiIcon } from "./widgets";
+import { barBackground, patternImage, PRESETS, withAlpha } from "../dock/appearance";
+import { AppConfig, AppWindow, DockConfig, SavedTheme, Theme, WidgetId } from "../config";
+import { settingsPalette } from "./palette";
+import { batteryIcon, ICONS, wifiIcon } from "../dock/widgets";
 
 type Control = HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
 type Values = Record<string, string | number | boolean>;
@@ -40,6 +40,8 @@ const themeName = document.querySelector<HTMLInputElement>("#theme-name")!;
 const stage = document.querySelector<HTMLElement>("#stage")!;
 const preview = document.querySelector<HTMLElement>("#preview")!;
 
+let appConfig: AppConfig;
+/** The dock's section of `appConfig`, which most of this window edits. */
 let config: DockConfig;
 let saveTimer: number | undefined;
 let runningExes: string[] = [];
@@ -64,7 +66,7 @@ function iconImage(path: string): HTMLImageElement {
 function scheduleSave() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
-    invoke("save_config", { config }).catch(showError);
+    invoke("save_config", { config: appConfig }).catch(showError);
   }, SAVE_DELAY_MS);
 }
 
@@ -74,16 +76,19 @@ function showError(error: unknown) {
 }
 
 function target(control: Control): Values {
-  const owner = control.dataset.theme
-    ? config.theme
-    : control.dataset.clock
-      ? config.clock
-      : config;
+  const owner = control.dataset.app
+    ? appConfig
+    : control.dataset.theme
+      ? config.theme
+      : control.dataset.clock
+        ? config.clock
+        : config;
   return owner as unknown as Values;
 }
 
 function controlKey(control: Control): string {
-  return control.dataset.theme ?? control.dataset.clock ?? control.dataset.key!;
+  const { app, theme, clock, key } = control.dataset;
+  return app ?? theme ?? clock ?? key!;
 }
 
 function showOutput(control: Control) {
@@ -99,7 +104,7 @@ function showOutput(control: Control) {
 
 function controls(): Control[] {
   return Array.from(
-    form.querySelectorAll<Control>("[data-key], [data-theme], [data-clock]"),
+    form.querySelectorAll<Control>("[data-app], [data-key], [data-theme], [data-clock]"),
   );
 }
 
@@ -614,7 +619,8 @@ function bindEvents() {
 }
 
 try {
-  config = await invoke<DockConfig>("get_config");
+  appConfig = await invoke<AppConfig>("get_config");
+  config = appConfig.dock;
   bindEvents();
   showPage(savedPage());
   refreshControls();
@@ -624,16 +630,16 @@ try {
   setInterval(() => refreshRunning().catch(showError), REFRESH_RUNNING_MS);
 
   // The tray can toggle the dock while this window is open.
-  listen<DockConfig>("config-changed", ({ payload }) => {
-    if (payload.enabled !== config.enabled) {
-      config.enabled = payload.enabled;
+  listen<AppConfig>("config-changed", ({ payload }) => {
+    if (payload.dock.enabled !== config.enabled) {
+      config.enabled = payload.dock.enabled;
       refreshControls();
     }
   });
   // Icons dragged on the dock must not be undone by the next save from here.
-  listen<DockConfig>("dock-order-changed", ({ payload }) => {
-    config.apps = payload.apps;
-    config.appOrder = payload.appOrder;
+  listen<AppConfig>("dock-order-changed", ({ payload }) => {
+    config.apps = payload.dock.apps;
+    config.appOrder = payload.dock.appOrder;
     renderApps();
     refreshRunning().catch(showError);
   });

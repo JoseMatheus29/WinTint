@@ -39,12 +39,18 @@ export type Alignment = "left" | "center" | "right";
 export type Edge = "bottom" | "top" | "left" | "right";
 export type MagnifyStyle = "wave" | "single" | "off";
 
+/** The whole settings file: app-wide options plus one section per module. */
+export interface AppConfig {
+  version: number;
+  startWithWindows: boolean;
+  dock: DockConfig;
+}
+
 export interface DockConfig {
   enabled: boolean;
   showStartButton: boolean;
   hideTaskbar: boolean;
   autoHide: boolean;
-  startWithWindows: boolean;
   iconSize: number;
   magnification: number;
   magnifyStyle: MagnifyStyle;

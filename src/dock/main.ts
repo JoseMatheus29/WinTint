@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { applyAppearance, PRESETS } from "./appearance";
-import { AppWindow, DockConfig, WidgetData } from "./config";
+import { AppConfig, AppWindow, DockConfig, WidgetData } from "../config";
 import { WidgetBar } from "./widgets";
 
 interface DockItem {
@@ -33,7 +33,6 @@ let config: DockConfig = {
   showStartButton: true,
   hideTaskbar: false,
   autoHide: false,
-  startWithWindows: false,
   iconSize: 52,
   magnification: 1.6,
   magnifyStyle: "wave",
@@ -475,7 +474,7 @@ await Promise.all([
     windows = payload;
     render();
   }),
-  listen<DockConfig>("config-changed", ({ payload }) => applyConfig(payload)),
+  listen<AppConfig>("config-changed", ({ payload }) => applyConfig(payload.dock)),
   listen<WidgetData>("widgets-changed", ({ payload }) =>
     widgetBar.update(payload),
   ),
@@ -483,7 +482,7 @@ await Promise.all([
 
 windows = await invoke<AppWindow[]>("get_windows");
 try {
-  applyConfig(await invoke<DockConfig>("get_config"));
+  applyConfig((await invoke<AppConfig>("get_config")).dock);
 } catch (error) {
   applyConfig(config);
   showError(error);

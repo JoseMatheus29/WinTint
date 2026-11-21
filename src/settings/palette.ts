@@ -1,4 +1,4 @@
-import { Theme } from "./config";
+import { Theme } from "../config";
 
 type Hsl = { h: number; s: number; l: number };
 
