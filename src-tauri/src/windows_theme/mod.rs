@@ -7,6 +7,7 @@
 //! module off writes them back.
 
 pub mod config;
+pub mod tweaks;
 
 use std::fs;
 use std::path::PathBuf;
@@ -48,6 +49,8 @@ const SNAPSHOT_FILE: &str = "windows-original.json";
 const LIGHT_BAR_LUMINANCE: f64 = 0.5;
 /// Opacity Windows itself uses for the colorization color.
 const COLORIZATION_ALPHA: u32 = 0xc4;
+/// How much more colorful a detail must be to stand for the theme over the bar.
+const SIGNATURE_MARGIN: f64 = 0.1;
 /// Keeps the accent usable behind white or black text.
 const ACCENT_LIGHTNESS: (f64, f64) = (0.2, 0.75);
 
@@ -87,10 +90,31 @@ pub fn get_windows_look(config: AppConfig) -> Look {
     }
 }
 
-/// Same rule the settings window uses for its own accent.
-fn is_colorful(color: Rgb) -> bool {
+/// How much color there is: 0 for grays, black and white, 1 for pure hues.
+fn chroma(color: Rgb) -> f64 {
     let (_, s, l) = color.hsl();
-    s > 0.25 && l > 0.12 && l < 0.94
+    s * (1.0 - (2.0 * l - 1.0).abs())
+}
+
+/// The color that identifies a theme: the most colorful one, looking at the
+/// bar first since it covers the most area. A detail color only takes over
+/// when it is clearly more colorful, as on a gray or black bar.
+pub fn signature_color(theme: &Theme) -> Option<Rgb> {
+    let mut candidates = vec![&theme.bar_color];
+    if theme.use_gradient {
+        candidates.push(&theme.bar_color2);
+    }
+    if theme.glow_size > 0.0 {
+        candidates.push(&theme.glow_color);
+    }
+    candidates.extend([&theme.border_color, &theme.active_color, &theme.dot_color]);
+    candidates
+        .into_iter()
+        .filter_map(|hex| Rgb::parse(hex))
+        .fold(None, |best, color| match best {
+            Some(best) if chroma(color) <= chroma(best) + SIGNATURE_MARGIN => Some(best),
+            _ => Some(color),
+        })
 }
 
 fn from_dock(theme: &Theme) -> (bool, Rgb) {
@@ -100,13 +124,7 @@ fn from_dock(theme: &Theme) -> (bool, Rgb) {
     } else {
         luminance(&theme.bar_color)
     };
-    let candidates = [&theme.active_color, &theme.bar_color, &theme.border_color];
-    let accent = candidates
-        .iter()
-        .filter_map(|hex| Rgb::parse(hex))
-        .find(|color| is_colorful(*color))
-        .or_else(|| Rgb::parse(&theme.active_color))
-        .unwrap_or_else(|| Rgb::parse(DEFAULT_ACCENT).unwrap());
+    let accent = signature_color(theme).unwrap_or_else(|| Rgb::parse(DEFAULT_ACCENT).unwrap());
     (brightness <= LIGHT_BAR_LUMINANCE, accent)
 }
 
@@ -303,14 +321,24 @@ mod tests {
         config.dock.theme.active_color = "#facc15".into();
         let ninja = target(&config);
         assert!(ninja.dark);
-        assert_eq!(ninja.accent.hsl().0.round(), Rgb::parse("#facc15").unwrap().hsl().0.round());
+        // The orange bar, not the yellow dot under the focused app.
+        assert_eq!(ninja.accent, Rgb::parse("#f97316").unwrap());
 
         config.dock.theme.bar_color = "#ffc2dc".into();
         config.dock.theme.bar_color2 = "#fff1f7".into();
         config.dock.theme.active_color = "#e6004c".into();
         let pink = target(&config);
         assert!(!pink.dark);
+        // A pastel bar loses to a clearly more colorful detail.
         assert_eq!(pink.accent, Rgb::parse("#e6004c").unwrap());
+
+        config.dock.theme.bar_color = "#18181c".into();
+        config.dock.theme.use_gradient = false;
+        config.dock.theme.border_color = "#ffffff".into();
+        config.dock.theme.active_color = "#6ee7f9".into();
+        let graphite = target(&config);
+        assert!(graphite.dark);
+        assert_eq!(graphite.accent, Rgb::parse("#6ee7f9").unwrap());
     }
 
     /// Uses a key of its own, so the real colors of Windows are never touched.

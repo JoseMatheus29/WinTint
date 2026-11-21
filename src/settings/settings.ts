@@ -11,6 +11,7 @@ import {
   WidgetId,
   ScreenInfo,
   WindowsLook,
+  WindowsTweaks,
 } from "../config";
 import { settingsPalette } from "./palette";
 import { batteryIcon, ICONS, wifiIcon } from "../dock/widgets";
@@ -23,6 +24,7 @@ const REFRESH_RUNNING_MS = 2000;
 const PAGE_STORAGE_KEY = "settings-page";
 const DEFAULT_PAGE = "themes";
 const PREVIEW_APPS = 5;
+const TWEAK_SETTLE_MS = 300;
 const PREVIEW_MARGIN = 20;
 const START_LOGO = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3h8.500v8.500H3zM12.500 3H21v8.500h-8.500zM3 12.500h8.500V21H3zM12.500 12.500H21V21h-8.500z"/></svg>`;
 
@@ -347,6 +349,41 @@ async function renderScreens() {
   );
 }
 
+async function renderTweaks() {
+  const tweaks = await invoke<WindowsTweaks>("get_windows_tweaks");
+  document.querySelector<HTMLInputElement>("#tweak-transparency")!.checked =
+    tweaks.transparency;
+  const icons = document.querySelector<HTMLInputElement>("#tweak-icons")!;
+  icons.checked = tweaks.desktopIcons ?? true;
+  icons.disabled = tweaks.desktopIcons === null;
+
+  const select = document.querySelector<HTMLSelectElement>("#tweak-cursor")!;
+  const schemes = [...tweaks.cursorSchemes].sort((a, b) =>
+    a.label.localeCompare(b.label, "pt-BR"),
+  );
+  const options = schemes.map((scheme) => new Option(scheme.label, scheme.id));
+  if (tweaks.cursorScheme === null) {
+    // A pointer set by hand or by another program matches no scheme.
+    const custom = new Option("Personalizado", "");
+    custom.disabled = true;
+    options.unshift(custom);
+  }
+  select.replaceChildren(...options);
+  select.value = tweaks.cursorScheme ?? "";
+}
+
+/** Runs a change in Windows, then shows what Windows actually did. */
+async function changeTweak(command: string, args: Record<string, unknown>) {
+  try {
+    await invoke(command, args);
+  } catch (error) {
+    showError(error);
+  }
+  // Explorer applies the icon toggle a moment after being asked.
+  await new Promise((resolve) => setTimeout(resolve, TWEAK_SETTLE_MS));
+  await renderTweaks();
+}
+
 function showPage(name: string) {
   const known = document.querySelector(`.page[data-page="${name}"]`) !== null;
   const page = known ? name : DEFAULT_PAGE;
@@ -356,8 +393,12 @@ function showPage(name: string) {
     if (!section.hidden) stage.hidden = section.dataset.module !== "dock";
   }
   if (!stage.hidden) fitPreview();
-  // Screens can be plugged in or out while the window is open.
-  if (page === "brightness") renderScreens().catch(showError);
+  if (page === "general") {
+    // Screens can be plugged in or out while the window is open, and Windows
+    // settings may have changed since the last visit.
+    renderScreens().catch(showError);
+    renderTweaks().catch(showError);
+  }
   for (const button of document.querySelectorAll<HTMLElement>("[data-nav]")) {
     if (button.dataset.nav === page) button.setAttribute("aria-current", "page");
     else button.removeAttribute("aria-current");
@@ -696,6 +737,19 @@ function bindEvents() {
     refreshLook();
     scheduleSave();
   });
+
+  const transparency = document.querySelector<HTMLInputElement>("#tweak-transparency")!;
+  transparency.addEventListener("input", () =>
+    changeTweak("set_transparency", { enabled: transparency.checked }),
+  );
+  const icons = document.querySelector<HTMLInputElement>("#tweak-icons")!;
+  icons.addEventListener("input", () =>
+    changeTweak("set_desktop_icons", { visible: icons.checked }),
+  );
+  const cursor = document.querySelector<HTMLSelectElement>("#tweak-cursor")!;
+  cursor.addEventListener("input", () =>
+    changeTweak("set_cursor_scheme", { id: cursor.value }),
+  );
 
   document.querySelector("#full-brightness")!.addEventListener("click", async () => {
     for (const slider of document.querySelectorAll<HTMLInputElement>("[data-screen]")) {

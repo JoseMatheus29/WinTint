@@ -21,8 +21,9 @@ use windows::Win32::Graphics::Gdi::{
 };
 use windows::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
 use windows::Win32::System::Registry::{
-    HKEY_CURRENT_USER, REG_BINARY, REG_DWORD, REG_SZ, REG_VALUE_TYPE, RRF_RT_ANY, RegDeleteKeyValueW,
-    RegGetValueW, RegSetKeyValueW,
+    HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ, REG_BINARY, REG_DWORD, REG_EXPAND_SZ,
+    REG_SZ, REG_VALUE_TYPE, RRF_RT_ANY, RegCloseKey, RegDeleteKeyValueW, RegEnumValueW, RegGetValueW,
+    RegOpenKeyExW, RegSetKeyValueW,
 };
 use windows::Win32::System::Com::{
     COINIT_APARTMENTTHREADED, CoInitializeEx, CoUninitialize,
@@ -36,13 +37,15 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 };
 use windows::Win32::UI::Shell::{
     IShellItemImageFactory, QUNS_RUNNING_D3D_FULL_SCREEN, SHCreateItemFromParsingName,
-    SHQueryUserNotificationState, SIIGBF_BIGGERSIZEOK, SIIGBF_ICONONLY, ShellExecuteW,
+    SHLoadIndirectString, SHQueryUserNotificationState, SIIGBF_BIGGERSIZEOK, SIIGBF_ICONONLY,
+    ShellExecuteW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     EnumChildWindows, EnumWindows, FindWindowExW, FindWindowW, GW_OWNER, GWL_EXSTYLE,
     GetClassNameW, GetCursorPos, GetForegroundWindow, GetWindow, GetWindowLongPtrW, GetWindowRect,
     GetWindowTextW, GetWindowThreadProcessId, HWND_BROADCAST, IsIconic, IsWindow, IsWindowVisible,
-    IsZoomed, MONITORINFOF_PRIMARY, SMTO_ABORTIFHUNG, SendMessageTimeoutW, WM_SETTINGCHANGE, SPI_GETWORKAREA, SW_HIDE,
+    IsZoomed, MONITORINFOF_PRIMARY, PostMessageW, SMTO_ABORTIFHUNG, SPI_GETWORKAREA, SPI_SETCURSORS,
+    SPIF_SENDCHANGE, SPIF_UPDATEINIFILE, SW_HIDE, SendMessageTimeoutW, WM_COMMAND, WM_SETTINGCHANGE,
     SW_MINIMIZE, SW_RESTORE, SW_SHOWNA, SW_SHOWNORMAL, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS,
     SetForegroundWindow, SetWindowLongPtrW, ShowWindow, ShowWindowAsync, SystemParametersInfoW,
     WS_EX_APPWINDOW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
@@ -740,3 +743,142 @@ pub fn delete_test_key(key: &str) {
         let _ = RegDeleteKeyW(HKEY_CURRENT_USER, &HSTRING::from(key));
     }
 }
+
+fn utf16_string(data: &[u8]) -> String {
+    let wide: Vec<u16> = data
+        .chunks_exact(2)
+        .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+        .collect();
+    let len = wide.iter().position(|&c| c == 0).unwrap_or(wide.len());
+    String::from_utf16_lossy(&wide[..len])
+}
+
+pub fn read_user_string(key: &str, name: &str) -> Option<String> {
+    let value = read_user_value(key, name)?;
+    (value.kind == REG_SZ.0 || value.kind == REG_EXPAND_SZ.0).then(|| utf16_string(&value.data))
+}
+
+/// Writes a string, leaving %VARIABLES% for Windows to expand when it reads it.
+pub fn set_user_expand_string(key: &str, name: &str, value: &str) -> Result<(), String> {
+    let data: Vec<u8> = value
+        .encode_utf16()
+        .chain(Some(0))
+        .flat_map(u16::to_le_bytes)
+        .collect();
+    write_user_value(key, name, &RegValue { kind: REG_EXPAND_SZ.0, data })
+}
+
+/// The string values under a key of HKEY_LOCAL_MACHINE, as stored.
+pub fn machine_strings(key: &str) -> Vec<(String, String)> {
+    let mut values = Vec::new();
+    let mut handle = HKEY::default();
+    unsafe {
+        let opened = RegOpenKeyExW(HKEY_LOCAL_MACHINE, &HSTRING::from(key), None, KEY_READ, &mut handle);
+        if opened != ERROR_SUCCESS {
+            return values;
+        }
+        for index in 0.. {
+            let mut name = [0u16; 256];
+            let mut name_len = name.len() as u32;
+            let mut kind = 0u32;
+            let mut data = vec![0u8; 8192];
+            let mut data_len = data.len() as u32;
+            let read = RegEnumValueW(
+                handle,
+                index,
+                Some(PWSTR(name.as_mut_ptr())),
+                &mut name_len,
+                None,
+                Some(&mut kind),
+                Some(data.as_mut_ptr()),
+                Some(&mut data_len),
+            );
+            if read != ERROR_SUCCESS {
+                break;
+            }
+            if kind == REG_SZ.0 || kind == REG_EXPAND_SZ.0 {
+                values.push((
+                    String::from_utf16_lossy(&name[..name_len as usize]),
+                    utf16_string(&data[..data_len as usize]),
+                ));
+            }
+        }
+        let _ = RegCloseKey(handle);
+    }
+    values
+}
+
+/// Replaces %NAME% with that environment variable, as Windows does when it
+/// reads an expandable registry string.
+pub fn expand_env(text: &str) -> String {
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(start) = rest.find('%') {
+        out.push_str(&rest[..start]);
+        let after = &rest[start + 1..];
+        let Some(end) = after.find('%') else {
+            out.push_str(&rest[start..]);
+            return out;
+        };
+        let name = &after[..end];
+        match std::env::var(name) {
+            Ok(value) => out.push_str(&value),
+            Err(_) => out.push_str(&rest[start..start + end + 2]),
+        }
+        rest = &after[end + 1..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Reads a localized string reference such as `@main.cpl,-1020`.
+pub fn load_indirect_string(source: &str) -> Option<String> {
+    let mut buffer = [0u16; 256];
+    unsafe { SHLoadIndirectString(&HSTRING::from(source), &mut buffer, None) }.ok()?;
+    let len = buffer.iter().position(|&c| c == 0).unwrap_or(buffer.len());
+    Some(String::from_utf16_lossy(&buffer[..len]))
+}
+
+/// Makes Windows load the cursors written under `Control Panel\Cursors`.
+pub fn reload_cursors() -> Result<(), String> {
+    unsafe {
+        SystemParametersInfoW(SPI_SETCURSORS, 0, None, SPIF_UPDATEINIFILE | SPIF_SENDCHANGE)
+    }
+    .map_err(|e| e.to_string())
+}
+
+/// The command Explorer runs for View > Show desktop icons.
+const TOGGLE_DESKTOP_ICONS: usize = 0x7402;
+
+/// The window that holds the desktop icons. Windows 11 keeps it in Progman,
+/// older versions in one of the WorkerW windows.
+fn desktop_view() -> Option<HWND> {
+    unsafe {
+        let progman = FindWindowW(w!("Progman"), PCWSTR::null()).ok()?;
+        if let Ok(view) = FindWindowExW(Some(progman), None, w!("SHELLDLL_DefView"), PCWSTR::null()) {
+            return Some(view);
+        }
+        let mut worker = None;
+        loop {
+            let next = FindWindowExW(None, worker, w!("WorkerW"), PCWSTR::null()).ok()?;
+            if let Ok(view) = FindWindowExW(Some(next), None, w!("SHELLDLL_DefView"), PCWSTR::null()) {
+                return Some(view);
+            }
+            worker = Some(next);
+        }
+    }
+}
+
+pub fn desktop_icons_visible() -> Option<bool> {
+    let view = desktop_view()?;
+    let list = unsafe { FindWindowExW(Some(view), None, w!("SysListView32"), PCWSTR::null()) }.ok()?;
+    Some(unsafe { IsWindowVisible(list) }.as_bool())
+}
+
+/// Explorer remembers the choice itself, as when done from its own menu.
+pub fn toggle_desktop_icons() -> Result<(), String> {
+    let view = desktop_view().ok_or("Não foi possível achar a área de trabalho.")?;
+    unsafe { PostMessageW(Some(view), WM_COMMAND, WPARAM(TOGGLE_DESKTOP_ICONS), LPARAM(0)) }
+        .map_err(|e| e.to_string())
+}
+

@@ -220,6 +220,10 @@ pub fn run() {
             dock::set_volume,
             dock::media_action,
             windows_theme::get_windows_look,
+            windows_theme::tweaks::get_windows_tweaks,
+            windows_theme::tweaks::set_transparency,
+            windows_theme::tweaks::set_desktop_icons,
+            windows_theme::tweaks::set_cursor_scheme,
             display::get_screens,
             display::set_brightness
         ])

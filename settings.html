@@ -59,10 +59,6 @@
             <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1"/><rect x="13" y="4" width="7" height="7" rx="1"/><rect x="4" y="13" width="7" height="7" rx="1"/><rect x="13" y="13" width="7" height="7" rx="1"/></svg>
             Cores do Windows
           </button>
-          <button type="button" data-nav="brightness">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.500"/><path d="M12 3v2.500M12 18.500V21M3 12h2.500M18.500 12H21M5.600 5.600l1.800 1.800M16.600 16.600l1.800 1.800M5.600 18.400l1.800-1.800M16.600 7.400l1.800-1.800"/></svg>
-            Brilho
-          </button>
           <button type="button" data-nav="general">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.300 3h3.400l.5 2.400 1.600.9 2.300-.8 1.700 2.900-1.800 1.600v1.900l1.800 1.600-1.700 2.900-2.300-.8-1.600.9-.5 2.400h-3.400l-.5-2.400-1.600-.9-2.300.8-1.700-2.900 1.800-1.600V10L3.800 8.400l1.700-2.900 2.300.8 1.600-.9z"/><circle cx="12" cy="12" r="2.800"/></svg>
             Geral
@@ -410,37 +406,62 @@
             <p class="hint">Alguns programas só trocam de cor quando são reabertos.</p>
           </section>
 
-          <section class="page" data-page="brightness" data-module="app">
-            <h1>Brilho</h1>
-            <div class="card">
-              <div id="screens" class="screens">
-                <p class="hint">Procurando as telas...</p>
-              </div>
-            </div>
-            <div class="inline actions">
-              <button id="full-brightness" type="button">Voltar tudo a 100%</button>
-            </div>
-            <p class="hint">
-              O WinTint escurece a imagem pelo próprio Windows, então funciona em qualquer monitor. Dá
-              para chegar até a metade do brilho que o monitor já tem. Para clarear além disso, use os
-              botões do monitor. Com HDR ligado, o Windows ignora este ajuste.
-            </p>
-          </section>
-
           <section class="page" data-page="general" data-module="app">
             <h1>Geral</h1>
-            <div class="toggles">
-              <label class="toggle">
-                <span>
-                  Abrir com o Windows
-                  <small>O WinTint inicia junto com o computador.</small>
-                </span>
-                <input type="checkbox" class="switch" data-app="startWithWindows" />
-              </label>
-            </div>
-            <div class="inline">
-              <button id="open-file" type="button">Abrir arquivo de configuração</button>
-              <button id="quit" type="button" class="danger">Encerrar o WinTint</button>
+            <div class="cards">
+              <div class="card">
+                <h2>Windows</h2>
+                <label class="row">
+                  <span>
+                    Efeitos de transparência
+                    <small>Fundo translúcido no Iniciar e em alguns apps.</small>
+                  </span>
+                  <input id="tweak-transparency" type="checkbox" class="switch" />
+                </label>
+                <label class="row">
+                  <span>
+                    Ícones da área de trabalho
+                    <small>Mostra ou esconde os atalhos.</small>
+                  </span>
+                  <input id="tweak-icons" type="checkbox" class="switch" />
+                </label>
+                <label class="row">
+                  <span>Cursor do mouse</span>
+                  <select id="tweak-cursor" aria-label="Esquema do cursor do mouse"></select>
+                </label>
+                <p class="hint">
+                  Mudam o Windows na hora, como no Configurações, e continuam valendo com o WinTint fechado.
+                </p>
+              </div>
+
+              <div class="card">
+                <h2>Brilho</h2>
+                <div id="screens" class="screens">
+                  <p class="hint">Procurando as telas...</p>
+                </div>
+                <div class="inline">
+                  <button id="full-brightness" type="button">Voltar tudo a 100%</button>
+                </div>
+                <p class="hint">
+                  Escurece pelo próprio Windows, em qualquer monitor, até a metade do brilho dele. Com HDR
+                  ligado, o Windows ignora este ajuste.
+                </p>
+              </div>
+
+              <div class="card">
+                <h2>WinTint</h2>
+                <label class="row">
+                  <span>
+                    Abrir com o Windows
+                    <small>Inicia junto com o computador.</small>
+                  </span>
+                  <input type="checkbox" class="switch" data-app="startWithWindows" />
+                </label>
+                <div class="inline">
+                  <button id="open-file" type="button">Abrir arquivo de configuração</button>
+                  <button id="quit" type="button" class="danger">Encerrar o WinTint</button>
+                </div>
+              </div>
             </div>
           </section>
         </div>

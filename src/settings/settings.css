@@ -974,3 +974,13 @@ textarea {
   display: inline;
   margin-left: 6px;
 }
+
+/* General page */
+
+.card > .row + .row {
+  margin-top: 6px;
+}
+
+.card > .row + .inline {
+  margin-top: 12px;
+}

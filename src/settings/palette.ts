@@ -12,6 +12,8 @@ export interface Palette {
 /** Below this contrast with the cards, an accent gets hard to see. */
 const MIN_ACCENT_CONTRAST = 3.5;
 const ACCENT_STEP = 0.03;
+/** How much more colorful a detail must be to stand for the theme over the bar. */
+const SIGNATURE_MARGIN = 0.1;
 /** Bars brighter than this get a light window. */
 const LIGHT_BAR_LUMINANCE = 0.5;
 
@@ -64,17 +66,29 @@ function contrast(first: string, second: string): number {
   return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
 }
 
-function isColorful(hex: string): boolean {
+/** How much color there is: 0 for grays, black and white, 1 for pure hues. */
+function chroma(hex: string): number {
   const { s, l } = toHsl(hex);
-  return s > 0.25 && l > 0.12 && l < 0.94;
+  return s * (1 - Math.abs(2 * l - 1));
 }
 
-/** The theme's most colorful highlight, moved until it reads on the cards. */
+/**
+ * The color that identifies a theme, by the same rule the Windows module uses
+ * for the accent: the bar wins unless a detail is clearly more colorful.
+ */
+function signatureColor(theme: Theme): string {
+  const candidates = [theme.barColor];
+  if (theme.useGradient) candidates.push(theme.barColor2);
+  if (theme.glowSize > 0) candidates.push(theme.glowColor);
+  candidates.push(theme.borderColor, theme.activeColor, theme.dotColor);
+  return candidates.reduce((best, color) =>
+    chroma(color) > chroma(best) + SIGNATURE_MARGIN ? color : best,
+  );
+}
+
+/** The theme's signature color, moved until it reads on the cards. */
 function accentFor(theme: Theme, surface: string, dark: boolean): string {
-  const source =
-    [theme.activeColor, theme.barColor, theme.borderColor].find(isColorful) ??
-    theme.activeColor;
-  const color = toHsl(source);
+  const color = toHsl(signatureColor(theme));
   while (contrast(toHex(color), surface) < MIN_ACCENT_CONTRAST) {
     color.l += dark ? ACCENT_STEP : -ACCENT_STEP;
     if (color.l <= 0 || color.l >= 1) break;

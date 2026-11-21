@@ -53,6 +53,15 @@ export interface DisplayConfig {
   brightness: Record<string, number>;
 }
 
+/** Windows settings the tweaks page reads live instead of from the config. */
+export interface WindowsTweaks {
+  transparency: boolean;
+  /** Null when the desktop window cannot be found. */
+  desktopIcons: boolean | null;
+  cursorSchemes: { id: string; label: string }[];
+  cursorScheme: string | null;
+}
+
 export interface ScreenInfo {
   id: string;
   name: string;
