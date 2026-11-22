@@ -1,7 +1,7 @@
 [package]
-name = "dock-jm"
+name = "wintint"
 version = "0.1.0"
-description = "A Tauri App"
+description = "Personalização do Windows com dock, temas e mais"
 authors = ["you"]
 edition = "2024"
 
@@ -11,7 +11,7 @@ edition = "2024"
 # The `_lib` suffix may seem redundant but it is necessary
 # to make the lib name unique and wouldn't conflict with the bin name.
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
-name = "dock_jm_lib"
+name = "wintint_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
@@ -24,7 +24,7 @@ serde_json = "1"
 tauri-plugin-single-instance = "2.5.5"
 png = "0.18.1"
 base64 = "0.23.1"
-windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Graphics_Dwm", "Win32_System_Threading", "Win32_System_Com", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse", "Win32_Media_Audio", "Win32_Media_Audio_Endpoints", "Win32_System_Power", "Win32_System_SystemInformation", "Foundation", "Media_Control", "Networking_Connectivity", "Storage_Streams", "Win32_System_Registry"] }
+windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Graphics_Dwm", "Win32_System_Threading", "Win32_System_Com", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse", "Win32_Media_Audio", "Win32_Media_Audio_Endpoints", "Win32_System_Power", "Win32_System_SystemInformation", "Foundation", "Media_Control", "Networking_Connectivity", "Storage_Streams", "Win32_System_Registry", "Win32_System_LibraryLoader", "Win32_Devices_Display", "Win32_UI_ColorSystem", "Win32_System_RestartManager"] }
 tauri-plugin-dialog = "2.8.4"
 
 

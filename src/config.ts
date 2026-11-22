@@ -39,12 +39,65 @@ export type Alignment = "left" | "center" | "right";
 export type Edge = "bottom" | "top" | "left" | "right";
 export type MagnifyStyle = "wave" | "single" | "off";
 
+/** The whole settings file: app-wide options plus one section per module. */
+export interface AppConfig {
+  version: number;
+  startWithWindows: boolean;
+  dock: DockConfig;
+  windows: WindowsConfig;
+  display: DisplayConfig;
+}
+
+export interface DisplayConfig {
+  /** Percent for each screen, by its Windows device name. */
+  brightness: Record<string, number>;
+}
+
+/** A switch, a number or the name of a choice. Null when Windows will not say. */
+export type TweakValue = boolean | number | string | null;
+
+export interface Choice {
+  id: string;
+  label: string;
+}
+
+/** Windows settings read live from Windows instead of from the config. */
+export interface WindowsTweaks {
+  /** Every setting by the name its control carries in `data-tweak`. */
+  values: Record<string, TweakValue>;
+  cursorSchemes: Choice[];
+  soundSchemes: Choice[];
+}
+
+export interface ScreenInfo {
+  id: string;
+  name: string;
+  primary: boolean;
+  brightness: number;
+}
+
+export type WindowsMode = "light" | "dark";
+
+export interface WindowsConfig {
+  enabled: boolean;
+  followDock: boolean;
+  mode: WindowsMode;
+  accent: string;
+  accentOnTitleBars: boolean;
+  accentOnStart: boolean;
+}
+
+/** What the Windows module applies for a config. */
+export interface WindowsLook {
+  dark: boolean;
+  accent: string;
+}
+
 export interface DockConfig {
   enabled: boolean;
   showStartButton: boolean;
   hideTaskbar: boolean;
   autoHide: boolean;
-  startWithWindows: boolean;
   iconSize: number;
   magnification: number;
   magnifyStyle: MagnifyStyle;

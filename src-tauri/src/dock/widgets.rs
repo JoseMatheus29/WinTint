@@ -22,7 +22,7 @@ use windows::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTAT
 use windows::Win32::System::Threading::GetSystemTimes;
 use windows::core::Interface;
 
-use crate::config::WidgetId;
+use super::config::WidgetId;
 
 /// The network barely changes and is the slowest source to ask.
 const NETWORK_REFRESH: Duration = Duration::from_secs(5);

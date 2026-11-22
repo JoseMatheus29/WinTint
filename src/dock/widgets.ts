@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { DockConfig, WidgetData, WidgetId } from "./config";
+import { DockConfig, WidgetData, WidgetId } from "../config";
 
 const VOLUME_STEP = 0.05;
 const CLOCK_TICK_MS = 1000;

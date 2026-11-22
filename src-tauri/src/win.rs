@@ -1,4 +1,4 @@
-//! Thin wrappers over the Win32 calls the dock needs.
+//! Thin wrappers over the Win32 calls the modules need.
 
 use std::ffi::c_void;
 use std::mem::size_of;
@@ -6,9 +6,9 @@ use std::path::Path;
 use std::sync::Mutex;
 
 use base64::Engine;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use windows::Win32::Foundation::{
-    CloseHandle, ERROR_FILE_NOT_FOUND, ERROR_SUCCESS, HWND, LPARAM, POINT, RECT, SIZE,
+    CloseHandle, ERROR_FILE_NOT_FOUND, ERROR_SUCCESS, HWND, LPARAM, POINT, RECT, SIZE, WPARAM,
 };
 use windows::Win32::Graphics::Dwm::{
     DWMWA_BORDER_COLOR, DWMWA_CAPTION_COLOR, DWMWA_CLOAKED, DWMWA_TEXT_COLOR,
@@ -19,8 +19,11 @@ use windows::Win32::Graphics::Gdi::{
     DeleteObject, GetDIBits, GetMonitorInfoW, GetObjectW, HBITMAP, HGDIOBJ,
     MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow,
 };
+use windows::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
 use windows::Win32::System::Registry::{
-    HKEY_CURRENT_USER, REG_SZ, RegDeleteKeyValueW, RegSetKeyValueW,
+    HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ, REG_BINARY, REG_DWORD, REG_EXPAND_SZ,
+    REG_SZ, REG_VALUE_TYPE, RRF_RT_ANY, RegCloseKey, RegDeleteKeyValueW, RegDeleteTreeW,
+    RegEnumKeyExW, RegEnumValueW, RegGetValueW, RegOpenKeyExW, RegSetKeyValueW,
 };
 use windows::Win32::System::Com::{
     COINIT_APARTMENTTHREADED, CoInitializeEx, CoUninitialize,
@@ -34,18 +37,20 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 };
 use windows::Win32::UI::Shell::{
     IShellItemImageFactory, QUNS_RUNNING_D3D_FULL_SCREEN, SHCreateItemFromParsingName,
-    SHQueryUserNotificationState, SIIGBF_BIGGERSIZEOK, SIIGBF_ICONONLY, ShellExecuteW,
+    SHLoadIndirectString, SHQueryUserNotificationState, SIIGBF, SIIGBF_BIGGERSIZEOK,
+    SIIGBF_ICONONLY, SIIGBF_RESIZETOFIT, ShellExecuteW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     EnumChildWindows, EnumWindows, FindWindowExW, FindWindowW, GW_OWNER, GWL_EXSTYLE,
     GetClassNameW, GetCursorPos, GetForegroundWindow, GetWindow, GetWindowLongPtrW, GetWindowRect,
-    GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindow, IsWindowVisible, IsZoomed,
-    MONITORINFOF_PRIMARY, SPI_GETWORKAREA, SW_HIDE,
+    GetWindowTextW, GetWindowThreadProcessId, HWND_BROADCAST, IsIconic, IsWindow, IsWindowVisible,
+    IsZoomed, MONITORINFOF_PRIMARY, PostMessageW, SMTO_ABORTIFHUNG, SPI_GETWORKAREA, SPI_SETCURSORS,
+    SPIF_SENDCHANGE, SPIF_UPDATEINIFILE, SW_HIDE, SendMessageTimeoutW, WM_COMMAND, WM_SETTINGCHANGE,
     SW_MINIMIZE, SW_RESTORE, SW_SHOWNA, SW_SHOWNORMAL, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS,
     SetForegroundWindow, SetWindowLongPtrW, ShowWindow, ShowWindowAsync, SystemParametersInfoW,
     WS_EX_APPWINDOW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
 };
-use windows::core::{BOOL, HSTRING, PCWSTR, PWSTR, w};
+use windows::core::{BOOL, HRESULT, HSTRING, PCSTR, PCWSTR, PWSTR, w};
 
 const ICON_SIZE: i32 = 128;
 const MAX_IMAGE_BYTES: u64 = 3 * 1024 * 1024;
@@ -60,7 +65,9 @@ const NOT_FULLSCREEN_APPS: [&str; 6] = [
     "Windows.UI.Core.CoreWindow",
 ];
 const AUTOSTART_KEY: PCWSTR = w!(r"Software\Microsoft\Windows\CurrentVersion\Run");
-const AUTOSTART_VALUE: PCWSTR = w!("Dock JM");
+const AUTOSTART_VALUE: PCWSTR = w!("WinTint");
+/// The entry written while the app was called Dock JM.
+const LEGACY_AUTOSTART_VALUE: PCWSTR = w!("Dock JM");
 
 static ICON_LOCK: Mutex<()> = Mutex::new(());
 
@@ -170,6 +177,13 @@ pub fn set_autostart(enabled: bool) -> Result<(), String> {
         Ok(())
     } else {
         Err(format!("Não foi possível alterar o início automático ({})", result.0))
+    }
+}
+
+/// Deletes the entry left by Dock JM, so the app never starts twice.
+pub fn remove_legacy_autostart() {
+    unsafe {
+        let _ = RegDeleteKeyValueW(HKEY_CURRENT_USER, AUTOSTART_KEY, LEGACY_AUTOSTART_VALUE);
     }
 }
 
@@ -472,6 +486,23 @@ pub fn read_image(path: &str) -> Result<String, String> {
 
 /// Icon of a file as a PNG data URL.
 pub fn file_icon(path: &str) -> Option<String> {
+    let size = SIZE {
+        cx: ICON_SIZE,
+        cy: ICON_SIZE,
+    };
+    shell_image(path, size, SIIGBF_ICONONLY | SIIGBF_BIGGERSIZEOK)
+}
+
+/// A small copy of a picture, as Explorer shows it, as a PNG data URL.
+pub fn file_thumbnail(path: &str, width: i32, height: i32) -> Option<String> {
+    let size = SIZE {
+        cx: width,
+        cy: height,
+    };
+    shell_image(path, size, SIIGBF_RESIZETOFIT)
+}
+
+fn shell_image(path: &str, size: SIZE, flags: SIIGBF) -> Option<String> {
     if !Path::new(path).exists() {
         return None;
     }
@@ -480,27 +511,19 @@ pub fn file_icon(path: &str) -> Option<String> {
     let _guard = ICON_LOCK.lock().unwrap_or_else(|error| error.into_inner());
     unsafe {
         let com = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
-        let icon = render_icon(path);
+        let image = render_shell_image(path, size, flags);
         if com.is_ok() {
             CoUninitialize();
         }
-        icon
+        image
     }
 }
 
-unsafe fn render_icon(path: &str) -> Option<String> {
+unsafe fn render_shell_image(path: &str, size: SIZE, flags: SIIGBF) -> Option<String> {
     unsafe {
         let factory: IShellItemImageFactory =
             SHCreateItemFromParsingName(&HSTRING::from(path), None).ok()?;
-        let bitmap = factory
-            .GetImage(
-                SIZE {
-                    cx: ICON_SIZE,
-                    cy: ICON_SIZE,
-                },
-                SIIGBF_ICONONLY | SIIGBF_BIGGERSIZEOK,
-            )
-            .ok()?;
+        let bitmap = factory.GetImage(size, flags).ok()?;
         let pixels = read_bitmap(bitmap);
         let _ = DeleteObject(HGDIOBJ(bitmap.0));
         let (width, height, pixels) = pixels?;
@@ -580,3 +603,359 @@ fn encode_png(width: u32, height: u32, pixels: &[u8]) -> Option<String> {
     let encoded = base64::engine::general_purpose::STANDARD.encode(&bytes);
     Some(format!("data:image/png;base64,{encoded}"))
 }
+
+/// A raw registry value, kept so it can be written back exactly as it was.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct RegValue {
+    pub kind: u32,
+    pub data: Vec<u8>,
+}
+
+impl RegValue {
+    pub fn as_dword(&self) -> Option<u32> {
+        let bytes: [u8; 4] = self.data.as_slice().try_into().ok()?;
+        (self.kind == REG_DWORD.0).then(|| u32::from_le_bytes(bytes))
+    }
+}
+
+pub fn read_user_value(key: &str, name: &str) -> Option<RegValue> {
+    let (key, name) = (HSTRING::from(key), HSTRING::from(name));
+    let mut kind = REG_VALUE_TYPE::default();
+    let mut size = 0u32;
+    unsafe {
+        let probe = RegGetValueW(
+            HKEY_CURRENT_USER,
+            &key,
+            &name,
+            RRF_RT_ANY,
+            Some(&mut kind as *mut _),
+            None,
+            Some(&mut size as *mut _),
+        );
+        if probe != ERROR_SUCCESS {
+            return None;
+        }
+        let mut data = vec![0u8; size as usize];
+        let read = RegGetValueW(
+            HKEY_CURRENT_USER,
+            &key,
+            &name,
+            RRF_RT_ANY,
+            Some(&mut kind as *mut _),
+            Some(data.as_mut_ptr() as *mut c_void),
+            Some(&mut size as *mut _),
+        );
+        if read != ERROR_SUCCESS {
+            return None;
+        }
+        data.truncate(size as usize);
+        Some(RegValue { kind: kind.0, data })
+    }
+}
+
+/// Creates the key when it is missing.
+pub fn write_user_value(key: &str, name: &str, value: &RegValue) -> Result<(), String> {
+    let result = unsafe {
+        RegSetKeyValueW(
+            HKEY_CURRENT_USER,
+            &HSTRING::from(key),
+            &HSTRING::from(name),
+            value.kind,
+            Some(value.data.as_ptr() as *const c_void),
+            value.data.len() as u32,
+        )
+    };
+    if result == ERROR_SUCCESS {
+        Ok(())
+    } else {
+        Err(format!(r"Não foi possível gravar {key}\{name} ({})", result.0))
+    }
+}
+
+pub fn set_user_dword(key: &str, name: &str, value: u32) -> Result<(), String> {
+    let data = value.to_le_bytes().to_vec();
+    write_user_value(key, name, &RegValue { kind: REG_DWORD.0, data })
+}
+
+pub fn set_user_binary(key: &str, name: &str, data: &[u8]) -> Result<(), String> {
+    let data = data.to_vec();
+    write_user_value(key, name, &RegValue { kind: REG_BINARY.0, data })
+}
+
+pub fn delete_user_value(key: &str, name: &str) {
+    unsafe {
+        let _ = RegDeleteKeyValueW(HKEY_CURRENT_USER, &HSTRING::from(key), &HSTRING::from(name));
+    }
+}
+
+/// What dwmapi.dll keeps for the accent shown in title bars.
+#[repr(C)]
+#[derive(Default)]
+struct ColorizationParams {
+    color: u32,
+    afterglow: u32,
+    color_balance: u32,
+    afterglow_balance: u32,
+    blur_balance: u32,
+    glass_reflection_intensity: u32,
+    opaque_blend: u32,
+}
+
+/// Repaints title bars in the new accent at once. dwmapi.dll exports these two
+/// functions by number only: 127 reads the colors and 131 sets them.
+pub fn set_dwm_colorization(argb: u32) {
+    type GetParams = unsafe extern "system" fn(*mut ColorizationParams) -> HRESULT;
+    type SetParams = unsafe extern "system" fn(*const ColorizationParams, u32) -> HRESULT;
+    unsafe {
+        // Already loaded, since the dock calls into it.
+        let Ok(module) = GetModuleHandleW(w!("dwmapi.dll")) else {
+            return;
+        };
+        let get = GetProcAddress(module, PCSTR(127 as *const u8));
+        let set = GetProcAddress(module, PCSTR(131 as *const u8));
+        let (Some(get), Some(set)) = (get, set) else {
+            return;
+        };
+        let get: GetParams = std::mem::transmute(get);
+        let set: SetParams = std::mem::transmute(set);
+        let mut params = ColorizationParams::default();
+        if get(&mut params).is_err() {
+            return;
+        }
+        params.color = argb;
+        params.afterglow = argb;
+        let _ = set(&params, 0);
+    }
+}
+
+/// Tells every window that the colors changed, as the Settings app does.
+pub fn broadcast_color_change() {
+    broadcast_setting_change("ImmersiveColorSet");
+}
+
+/// Tells every window that a group of settings changed, so they read it again.
+pub fn broadcast_setting_change(area: &str) {
+    let area = HSTRING::from(area);
+    unsafe {
+        let _ = SendMessageTimeoutW(
+            HWND_BROADCAST,
+            WM_SETTINGCHANGE,
+            WPARAM(0),
+            LPARAM(area.as_ptr() as isize),
+            SMTO_ABORTIFHUNG,
+            1000,
+            None,
+        );
+    }
+}
+
+/// Removes a key that only tests create.
+#[cfg(test)]
+pub fn delete_test_key(key: &str) {
+    use windows::Win32::System::Registry::RegDeleteKeyW;
+    unsafe {
+        let _ = RegDeleteKeyW(HKEY_CURRENT_USER, &HSTRING::from(key));
+    }
+}
+
+fn utf16_string(data: &[u8]) -> String {
+    let wide: Vec<u16> = data
+        .chunks_exact(2)
+        .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+        .collect();
+    let len = wide.iter().position(|&c| c == 0).unwrap_or(wide.len());
+    String::from_utf16_lossy(&wide[..len])
+}
+
+pub fn read_user_string(key: &str, name: &str) -> Option<String> {
+    let value = read_user_value(key, name)?;
+    (value.kind == REG_SZ.0 || value.kind == REG_EXPAND_SZ.0).then(|| utf16_string(&value.data))
+}
+
+/// Writes a string, leaving %VARIABLES% for Windows to expand when it reads it.
+pub fn set_user_expand_string(key: &str, name: &str, value: &str) -> Result<(), String> {
+    let data: Vec<u8> = value
+        .encode_utf16()
+        .chain(Some(0))
+        .flat_map(u16::to_le_bytes)
+        .collect();
+    write_user_value(key, name, &RegValue { kind: REG_EXPAND_SZ.0, data })
+}
+
+pub fn set_user_string(key: &str, name: &str, value: &str) -> Result<(), String> {
+    let data: Vec<u8> = value
+        .encode_utf16()
+        .chain(Some(0))
+        .flat_map(u16::to_le_bytes)
+        .collect();
+    write_user_value(key, name, &RegValue { kind: REG_SZ.0, data })
+}
+
+pub fn user_key_exists(key: &str) -> bool {
+    let mut handle = HKEY::default();
+    unsafe {
+        let opened = RegOpenKeyExW(HKEY_CURRENT_USER, &HSTRING::from(key), None, KEY_READ, &mut handle);
+        if opened == ERROR_SUCCESS {
+            let _ = RegCloseKey(handle);
+        }
+        opened == ERROR_SUCCESS
+    }
+}
+
+/// Deletes a key of HKEY_CURRENT_USER with everything under it.
+pub fn delete_user_tree(key: &str) -> Result<(), String> {
+    let result = unsafe { RegDeleteTreeW(HKEY_CURRENT_USER, &HSTRING::from(key)) };
+    // A key that is already gone is what was asked for.
+    if result == ERROR_SUCCESS || result == ERROR_FILE_NOT_FOUND {
+        Ok(())
+    } else {
+        Err(format!(r"Não foi possível apagar {key} ({})", result.0))
+    }
+}
+
+/// The names of the keys right under a key of HKEY_CURRENT_USER.
+pub fn user_subkeys(key: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    let mut handle = HKEY::default();
+    unsafe {
+        let opened = RegOpenKeyExW(HKEY_CURRENT_USER, &HSTRING::from(key), None, KEY_READ, &mut handle);
+        if opened != ERROR_SUCCESS {
+            return names;
+        }
+        for index in 0.. {
+            let mut name = [0u16; 256];
+            let mut name_len = name.len() as u32;
+            let read = RegEnumKeyExW(
+                handle,
+                index,
+                Some(PWSTR(name.as_mut_ptr())),
+                &mut name_len,
+                None,
+                None,
+                None,
+                None,
+            );
+            if read != ERROR_SUCCESS {
+                break;
+            }
+            names.push(String::from_utf16_lossy(&name[..name_len as usize]));
+        }
+        let _ = RegCloseKey(handle);
+    }
+    names
+}
+
+/// The string values under a key of HKEY_LOCAL_MACHINE, as stored.
+pub fn machine_strings(key: &str) -> Vec<(String, String)> {
+    let mut values = Vec::new();
+    let mut handle = HKEY::default();
+    unsafe {
+        let opened = RegOpenKeyExW(HKEY_LOCAL_MACHINE, &HSTRING::from(key), None, KEY_READ, &mut handle);
+        if opened != ERROR_SUCCESS {
+            return values;
+        }
+        for index in 0.. {
+            let mut name = [0u16; 256];
+            let mut name_len = name.len() as u32;
+            let mut kind = 0u32;
+            let mut data = vec![0u8; 8192];
+            let mut data_len = data.len() as u32;
+            let read = RegEnumValueW(
+                handle,
+                index,
+                Some(PWSTR(name.as_mut_ptr())),
+                &mut name_len,
+                None,
+                Some(&mut kind),
+                Some(data.as_mut_ptr()),
+                Some(&mut data_len),
+            );
+            if read != ERROR_SUCCESS {
+                break;
+            }
+            if kind == REG_SZ.0 || kind == REG_EXPAND_SZ.0 {
+                values.push((
+                    String::from_utf16_lossy(&name[..name_len as usize]),
+                    utf16_string(&data[..data_len as usize]),
+                ));
+            }
+        }
+        let _ = RegCloseKey(handle);
+    }
+    values
+}
+
+/// Replaces %NAME% with that environment variable, as Windows does when it
+/// reads an expandable registry string.
+pub fn expand_env(text: &str) -> String {
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(start) = rest.find('%') {
+        out.push_str(&rest[..start]);
+        let after = &rest[start + 1..];
+        let Some(end) = after.find('%') else {
+            out.push_str(&rest[start..]);
+            return out;
+        };
+        let name = &after[..end];
+        match std::env::var(name) {
+            Ok(value) => out.push_str(&value),
+            Err(_) => out.push_str(&rest[start..start + end + 2]),
+        }
+        rest = &after[end + 1..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Reads a localized string reference such as `@main.cpl,-1020`.
+pub fn load_indirect_string(source: &str) -> Option<String> {
+    let mut buffer = [0u16; 256];
+    unsafe { SHLoadIndirectString(&HSTRING::from(source), &mut buffer, None) }.ok()?;
+    let len = buffer.iter().position(|&c| c == 0).unwrap_or(buffer.len());
+    Some(String::from_utf16_lossy(&buffer[..len]))
+}
+
+/// Makes Windows load the cursors written under `Control Panel\Cursors`.
+pub fn reload_cursors() -> Result<(), String> {
+    unsafe {
+        SystemParametersInfoW(SPI_SETCURSORS, 0, None, SPIF_UPDATEINIFILE | SPIF_SENDCHANGE)
+    }
+    .map_err(|e| e.to_string())
+}
+
+/// The command Explorer runs for View > Show desktop icons.
+const TOGGLE_DESKTOP_ICONS: usize = 0x7402;
+
+/// The window that holds the desktop icons. Windows 11 keeps it in Progman,
+/// older versions in one of the WorkerW windows.
+fn desktop_view() -> Option<HWND> {
+    unsafe {
+        let progman = FindWindowW(w!("Progman"), PCWSTR::null()).ok()?;
+        if let Ok(view) = FindWindowExW(Some(progman), None, w!("SHELLDLL_DefView"), PCWSTR::null()) {
+            return Some(view);
+        }
+        let mut worker = None;
+        loop {
+            let next = FindWindowExW(None, worker, w!("WorkerW"), PCWSTR::null()).ok()?;
+            if let Ok(view) = FindWindowExW(Some(next), None, w!("SHELLDLL_DefView"), PCWSTR::null()) {
+                return Some(view);
+            }
+            worker = Some(next);
+        }
+    }
+}
+
+pub fn desktop_icons_visible() -> Option<bool> {
+    let view = desktop_view()?;
+    let list = unsafe { FindWindowExW(Some(view), None, w!("SysListView32"), PCWSTR::null()) }.ok()?;
+    Some(unsafe { IsWindowVisible(list) }.as_bool())
+}
+
+/// Explorer remembers the choice itself, as when done from its own menu.
+pub fn toggle_desktop_icons() -> Result<(), String> {
+    let view = desktop_view().ok_or("Não foi possível achar a área de trabalho.")?;
+    unsafe { PostMessageW(Some(view), WM_COMMAND, WPARAM(TOGGLE_DESKTOP_ICONS), LPARAM(0)) }
+        .map_err(|e| e.to_string())
+}
+
