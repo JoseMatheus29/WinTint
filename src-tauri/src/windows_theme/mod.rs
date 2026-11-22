@@ -7,7 +7,6 @@
 //! module off writes them back.
 
 pub mod config;
-pub mod tweaks;
 
 use std::fs;
 use std::path::PathBuf;

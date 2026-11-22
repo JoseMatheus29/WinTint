@@ -53,13 +53,20 @@ export interface DisplayConfig {
   brightness: Record<string, number>;
 }
 
-/** Windows settings the tweaks page reads live instead of from the config. */
+/** A switch, a number or the name of a choice. Null when Windows will not say. */
+export type TweakValue = boolean | number | string | null;
+
+export interface Choice {
+  id: string;
+  label: string;
+}
+
+/** Windows settings read live from Windows instead of from the config. */
 export interface WindowsTweaks {
-  transparency: boolean;
-  /** Null when the desktop window cannot be found. */
-  desktopIcons: boolean | null;
-  cursorSchemes: { id: string; label: string }[];
-  cursorScheme: string | null;
+  /** Every setting by the name its control carries in `data-tweak`. */
+  values: Record<string, TweakValue>;
+  cursorSchemes: Choice[];
+  soundSchemes: Choice[];
 }
 
 export interface ScreenInfo {

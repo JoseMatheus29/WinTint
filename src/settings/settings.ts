@@ -10,6 +10,8 @@ import {
   Theme,
   WidgetId,
   ScreenInfo,
+  Choice,
+  TweakValue,
   WindowsLook,
   WindowsTweaks,
 } from "../config";
@@ -22,9 +24,12 @@ type Values = Record<string, string | number | boolean>;
 const SAVE_DELAY_MS = 120;
 const REFRESH_RUNNING_MS = 2000;
 const PAGE_STORAGE_KEY = "settings-page";
-const DEFAULT_PAGE = "themes";
+const DEFAULT_PAGE = "windows-colors";
 const PREVIEW_APPS = 5;
 const TWEAK_SETTLE_MS = 300;
+/** Pages whose controls show settings read live from Windows. */
+const TWEAK_PAGES = new Set(["desktop", "taskbar", "files", "input", "general"]);
+const KEY_DELAYS_MS = [250, 500, 750, 1000];
 const PREVIEW_MARGIN = 20;
 const START_LOGO = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3h8.500v8.500H3zM12.500 3H21v8.500h-8.500zM3 12.500h8.500V21H3zM12.500 12.500H21V21h-8.500z"/></svg>`;
 
@@ -34,6 +39,14 @@ const FORMATS: Record<string, (value: number) => string> = {
   px: (value) => `${value}px`,
   deg: (value) => `${value}°`,
   times: (value) => `${value.toFixed(2)}×`,
+  level: (value) => `${value}`,
+  // Windows reports "one screen at a time" as a huge number of lines.
+  lines: (value) => (value > 100 ? "Uma tela" : `${value} ${value === 1 ? "linha" : "linhas"}`),
+  // The Settings app adds 16 pixels to the normal 32 at each step.
+  cursor: (value) => `${32 + (value - 1) * 16}px`,
+  keyDelay: (value) => `${KEY_DELAYS_MS[value] ?? value} ms`,
+  // Windows goes from about 2.5 to about 30 repeats a second.
+  keyRepeat: (value) => `${Math.round(2.5 + (value * 27.5) / 31)}/s`,
 };
 
 const WIDGET_INFO: Record<WidgetId, { name: string; description: string }> = {
@@ -194,6 +207,7 @@ function refreshOptionalControls() {
   for (const [key, value] of Object.entries(appConfig.windows)) {
     values[`win.${key}`] = value;
   }
+  values.dockHidesTaskbar = config.enabled && config.hideTaskbar;
   const off = new Set(["none", "off"]);
   for (const element of document.querySelectorAll<HTMLElement>("[data-show-when]")) {
     // "!key" shows the element while the setting is off instead.
@@ -349,38 +363,94 @@ async function renderScreens() {
   );
 }
 
-async function renderTweaks() {
-  const tweaks = await invoke<WindowsTweaks>("get_windows_tweaks");
-  document.querySelector<HTMLInputElement>("#tweak-transparency")!.checked =
-    tweaks.transparency;
-  const icons = document.querySelector<HTMLInputElement>("#tweak-icons")!;
-  icons.checked = tweaks.desktopIcons ?? true;
-  icons.disabled = tweaks.desktopIcons === null;
+function tweakControls(): Control[] {
+  return Array.from(form.querySelectorAll<Control>("[data-tweak]"));
+}
 
-  const select = document.querySelector<HTMLSelectElement>("#tweak-cursor")!;
-  const schemes = [...tweaks.cursorSchemes].sort((a, b) =>
-    a.label.localeCompare(b.label, "pt-BR"),
-  );
-  const options = schemes.map((scheme) => new Option(scheme.label, scheme.id));
-  if (tweaks.cursorScheme === null) {
-    // A pointer set by hand or by another program matches no scheme.
+/** Lists the schemes Windows has, plus a placeholder when none is in use. */
+function fillChoices(select: HTMLSelectElement, choices: Choice[], current: TweakValue) {
+  const sorted = [...choices].sort((a, b) => a.label.localeCompare(b.label, "pt-BR"));
+  const options = sorted.map((choice) => new Option(choice.label, choice.id));
+  if (typeof current !== "string") {
+    // Pointers or sounds set by hand or by another program match no scheme.
     const custom = new Option("Personalizado", "");
     custom.disabled = true;
     options.unshift(custom);
   }
   select.replaceChildren(...options);
-  select.value = tweaks.cursorScheme ?? "";
+}
+
+/** Shows every Windows setting as Windows has it right now. */
+async function renderTweaks() {
+  const tweaks = await invoke<WindowsTweaks>("get_windows_tweaks");
+  for (const control of tweakControls()) {
+    const value = tweaks.values[control.dataset.tweak!];
+    const choices = control.dataset.choices as "cursorSchemes" | "soundSchemes" | undefined;
+    if (control instanceof HTMLSelectElement && choices) {
+      fillChoices(control, tweaks[choices], value);
+    }
+    if (control instanceof HTMLInputElement && control.type === "checkbox") {
+      control.checked = value === true;
+    } else if (control instanceof HTMLInputElement && control.type === "radio") {
+      control.checked = control.value === value;
+    } else {
+      control.value = String(value ?? "");
+    }
+    control.disabled = value === null && !choices;
+    showOutput(control);
+    // A slider shows Windows' own number even past the end it allows here.
+    const output = control.parentElement?.querySelector("output");
+    const format = FORMATS[control.dataset.format ?? ""];
+    if (output && format && typeof value === "number") output.textContent = format(value);
+  }
+
+  const wallpaper = tweaks.values.wallpaper;
+  document.querySelector("#wallpaper-name")!.textContent =
+    typeof wallpaper === "string" ? fileName(wallpaper) : "Uma imagem diferente em cada tela";
+}
+
+async function renderWallpaper() {
+  const preview = await invoke<string | null>("get_wallpaper_preview");
+  const image = document.querySelector<HTMLImageElement>("#wallpaper-preview")!;
+  image.hidden = preview === null;
+  if (preview) image.src = preview;
+}
+
+function readTweak(control: Control): TweakValue {
+  if (control instanceof HTMLInputElement) {
+    if (control.type === "checkbox") return control.checked;
+    if (control.type === "range") return control.valueAsNumber;
+  }
+  return control.value;
 }
 
 /** Runs a change in Windows, then shows what Windows actually did. */
-async function changeTweak(command: string, args: Record<string, unknown>) {
+async function changeTweak(name: string, value: TweakValue) {
   try {
-    await invoke(command, args);
+    await invoke("set_windows_tweak", { name, value });
   } catch (error) {
     showError(error);
   }
-  // Explorer applies the icon toggle a moment after being asked.
+  // Explorer applies some changes a moment after being asked.
   await new Promise((resolve) => setTimeout(resolve, TWEAK_SETTLE_MS));
+  await renderTweaks();
+}
+
+async function restartExplorer() {
+  const buttons = document.querySelectorAll<HTMLButtonElement>("[data-restart-explorer]");
+  for (const button of buttons) {
+    button.disabled = true;
+    button.textContent = "Reiniciando...";
+  }
+  try {
+    await invoke("restart_explorer");
+  } catch (error) {
+    showError(error);
+  }
+  for (const button of buttons) {
+    button.disabled = false;
+    button.textContent = "Reiniciar o Explorador";
+  }
   await renderTweaks();
 }
 
@@ -393,12 +463,11 @@ function showPage(name: string) {
     if (!section.hidden) stage.hidden = section.dataset.module !== "dock";
   }
   if (!stage.hidden) fitPreview();
-  if (page === "general") {
-    // Screens can be plugged in or out while the window is open, and Windows
-    // settings may have changed since the last visit.
-    renderScreens().catch(showError);
-    renderTweaks().catch(showError);
-  }
+  // Windows settings may have changed since the last visit, and screens can
+  // be plugged in or out while the window is open.
+  if (TWEAK_PAGES.has(page)) renderTweaks().catch(showError);
+  if (page === "desktop") renderWallpaper().catch(showError);
+  if (page === "general") renderScreens().catch(showError);
   for (const button of document.querySelectorAll<HTMLElement>("[data-nav]")) {
     if (button.dataset.nav === page) button.setAttribute("aria-current", "page");
     else button.removeAttribute("aria-current");
@@ -738,18 +807,33 @@ function bindEvents() {
     scheduleSave();
   });
 
-  const transparency = document.querySelector<HTMLInputElement>("#tweak-transparency")!;
-  transparency.addEventListener("input", () =>
-    changeTweak("set_transparency", { enabled: transparency.checked }),
-  );
-  const icons = document.querySelector<HTMLInputElement>("#tweak-icons")!;
-  icons.addEventListener("input", () =>
-    changeTweak("set_desktop_icons", { visible: icons.checked }),
-  );
-  const cursor = document.querySelector<HTMLSelectElement>("#tweak-cursor")!;
-  cursor.addEventListener("input", () =>
-    changeTweak("set_cursor_scheme", { id: cursor.value }),
-  );
+  for (const control of tweakControls()) {
+    const slider = control instanceof HTMLInputElement && control.type === "range";
+    // A slider changes Windows once it is let go, not at every step.
+    if (slider) control.addEventListener("input", () => showOutput(control));
+    control.addEventListener(slider ? "change" : "input", () => {
+      changeTweak(control.dataset.tweak!, readTweak(control)).catch(showError);
+    });
+  }
+
+  for (const button of document.querySelectorAll("[data-restart-explorer]")) {
+    button.addEventListener("click", () => restartExplorer().catch(showError));
+  }
+
+  document.querySelector("#choose-wallpaper")!.addEventListener("click", async () => {
+    const path = await open({
+      title: "Escolher papel de parede",
+      filters: [
+        {
+          name: "Imagens",
+          extensions: ["jpg", "jpeg", "png", "bmp", "gif", "webp", "tif", "tiff", "heic"],
+        },
+      ],
+    });
+    if (typeof path !== "string") return;
+    await changeTweak("wallpaper", path);
+    await renderWallpaper();
+  });
 
   document.querySelector("#full-brightness")!.addEventListener("click", async () => {
     for (const slider of document.querySelectorAll<HTMLInputElement>("[data-screen]")) {

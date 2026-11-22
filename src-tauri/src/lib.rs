@@ -6,6 +6,7 @@ mod color;
 mod config;
 mod display;
 mod dock;
+mod tweaks;
 mod win;
 mod windows_theme;
 
@@ -220,10 +221,10 @@ pub fn run() {
             dock::set_volume,
             dock::media_action,
             windows_theme::get_windows_look,
-            windows_theme::tweaks::get_windows_tweaks,
-            windows_theme::tweaks::set_transparency,
-            windows_theme::tweaks::set_desktop_icons,
-            windows_theme::tweaks::set_cursor_scheme,
+            tweaks::get_windows_tweaks,
+            tweaks::set_windows_tweak,
+            tweaks::get_wallpaper_preview,
+            tweaks::restart_explorer,
             display::get_screens,
             display::set_brightness
         ])

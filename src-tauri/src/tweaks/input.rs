@@ -1,13 +1,17 @@
-//! Windows settings changed on the spot, like the switches in the Settings app:
-//! transparency effects, desktop icons and the mouse pointer scheme. Windows
-//! keeps them after WinTint closes, so nothing here needs restoring.
+//! The mouse pointer, its speed and the keyboard repeat.
 
-use serde::Serialize;
+use serde_json::Value;
+use windows::Win32::UI::WindowsAndMessaging::{
+    SPI_GETKEYBOARDDELAY, SPI_GETKEYBOARDSPEED, SPI_GETMOUSE, SPI_GETMOUSESPEED,
+    SPI_GETWHEELSCROLLLINES, SPI_SETKEYBOARDDELAY, SPI_SETKEYBOARDSPEED, SPI_SETMOUSE,
+    SPI_SETMOUSESPEED, SPI_SETWHEELSCROLLLINES, SYSTEM_PARAMETERS_INFO_ACTION,
+};
 
+use super::{Choice, Values, as_param, flag, number, spi_get, spi_set, text};
 use crate::win;
 
-const PERSONALIZE: &str = r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize";
 const CURSORS: &str = r"Control Panel\Cursors";
+const ACCESSIBILITY: &str = r"Software\Microsoft\Accessibility";
 const SCHEMES: &str = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Control Panel\Cursors\Schemes";
 /// The pointer roles, in the order every scheme lists its files.
 const CURSOR_ROLES: [&str; 17] = [
@@ -31,25 +35,20 @@ const CURSOR_ROLES: [&str; 17] = [
 ];
 /// Marks a scheme as one of the system's, not one saved by the user.
 const SYSTEM_SCHEME: u32 = 2;
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CursorScheme {
-    id: String,
-    /// The name Windows shows in its own language, when the scheme has one.
-    label: String,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Tweaks {
-    transparency: bool,
-    /// None when the desktop window cannot be found.
-    desktop_icons: Option<bool>,
-    cursor_schemes: Vec<CursorScheme>,
-    /// The scheme whose pointer matches the current one, if any.
-    cursor_scheme: Option<String>,
-}
+/// The pointer sizes of the Settings app go from 1 to 15, adding 16 pixels
+/// to the normal 32 at each step.
+const CURSOR_SIZES: u32 = 15;
+const CURSOR_BASE: u32 = 32;
+const CURSOR_STEP: u32 = 16;
+/// Not in the documentation: what the Settings app calls to resize the
+/// pointer at once. The new size in pixels goes in the pointer argument.
+const SPI_SETCURSORSIZE: SYSTEM_PARAMETERS_INFO_ACTION = SYSTEM_PARAMETERS_INFO_ACTION(0x2029);
+/// The thresholds Windows uses for "Enhance pointer precision".
+const PRECISION_ON: [i32; 3] = [6, 10, 1];
+const MAX_MOUSE_SPEED: u32 = 20;
+const MAX_SCROLL_LINES: u32 = 100;
+const MAX_KEYBOARD_DELAY: u32 = 3;
+const MAX_KEYBOARD_SPEED: u32 = 31;
 
 struct Scheme {
     id: String,
@@ -75,52 +74,66 @@ fn schemes() -> Vec<Scheme> {
         .collect()
 }
 
+pub fn cursor_schemes() -> Vec<Choice> {
+    schemes()
+        .into_iter()
+        .map(|scheme| Choice {
+            id: scheme.id,
+            label: scheme.label,
+        })
+        .collect()
+}
+
 fn same_file(a: &str, b: &str) -> bool {
     win::expand_env(a).eq_ignore_ascii_case(&win::expand_env(b))
 }
 
-#[tauri::command]
-pub fn get_windows_tweaks() -> Tweaks {
-    let schemes = schemes();
+/// The scheme whose pointer matches the current one, if any.
+fn current_scheme() -> Option<String> {
     let arrow = win::read_user_string(CURSORS, "Arrow").unwrap_or_default();
-    let cursor_scheme = schemes
-        .iter()
+    schemes()
+        .into_iter()
         .find(|scheme| scheme.files.first().is_some_and(|file| same_file(file, &arrow)))
-        .map(|scheme| scheme.id.clone());
-    let transparency = win::read_user_value(PERSONALIZE, "EnableTransparency")
+        .map(|scheme| scheme.id)
+}
+
+fn cursor_size() -> u32 {
+    let base = win::read_user_value(CURSORS, "CursorBaseSize")
         .and_then(|value| value.as_dword())
-        .is_none_or(|value| value != 0);
-    Tweaks {
-        transparency,
-        desktop_icons: win::desktop_icons_visible(),
-        cursor_schemes: schemes
-            .into_iter()
-            .map(|scheme| CursorScheme {
-                id: scheme.id,
-                label: scheme.label,
-            })
-            .collect(),
-        cursor_scheme,
-    }
+        .unwrap_or(CURSOR_BASE);
+    (base.saturating_sub(CURSOR_BASE) / CURSOR_STEP + 1).clamp(1, CURSOR_SIZES)
 }
 
-#[tauri::command(async)]
-pub fn set_transparency(enabled: bool) -> Result<(), String> {
-    win::set_user_dword(PERSONALIZE, "EnableTransparency", enabled as u32)?;
-    win::broadcast_color_change();
-    Ok(())
+pub fn read(values: &mut Values) {
+    let precision = spi_get::<[i32; 3]>(SPI_GETMOUSE).map(|mouse| mouse[2] != 0);
+    values.insert("cursorScheme".into(), current_scheme().into());
+    values.insert("cursorSize".into(), cursor_size().into());
+    values.insert("mouseSpeed".into(), spi_get::<u32>(SPI_GETMOUSESPEED).into());
+    values.insert("mousePrecision".into(), precision.into());
+    values.insert("scrollLines".into(), spi_get::<u32>(SPI_GETWHEELSCROLLLINES).into());
+    values.insert("keyboardDelay".into(), spi_get::<u32>(SPI_GETKEYBOARDDELAY).into());
+    values.insert("keyboardSpeed".into(), spi_get::<u32>(SPI_GETKEYBOARDSPEED).into());
 }
 
-#[tauri::command]
-pub fn set_desktop_icons(visible: bool) -> Result<(), String> {
-    if win::desktop_icons_visible() == Some(visible) {
-        return Ok(());
-    }
-    win::toggle_desktop_icons()
+pub fn set(name: &str, value: &Value) -> Option<Result<(), String>> {
+    let result = match name {
+        "cursorScheme" => text(value).and_then(set_cursor_scheme),
+        "cursorSize" => number(value, 1, CURSOR_SIZES).and_then(set_cursor_size),
+        "mouseSpeed" => number(value, 1, MAX_MOUSE_SPEED)
+            .and_then(|speed| spi_set(SPI_SETMOUSESPEED, 0, as_param(speed))),
+        "mousePrecision" => flag(value).and_then(set_precision),
+        "scrollLines" => number(value, 1, MAX_SCROLL_LINES)
+            .and_then(|lines| spi_set(SPI_SETWHEELSCROLLLINES, lines, std::ptr::null_mut())),
+        "keyboardDelay" => number(value, 0, MAX_KEYBOARD_DELAY)
+            .and_then(|delay| spi_set(SPI_SETKEYBOARDDELAY, delay, std::ptr::null_mut())),
+        "keyboardSpeed" => number(value, 0, MAX_KEYBOARD_SPEED)
+            .and_then(|speed| spi_set(SPI_SETKEYBOARDSPEED, speed, std::ptr::null_mut())),
+        _ => return None,
+    };
+    Some(result)
 }
 
-#[tauri::command(async)]
-pub fn set_cursor_scheme(id: String) -> Result<(), String> {
+fn set_cursor_scheme(id: &str) -> Result<(), String> {
     let scheme = schemes()
         .into_iter()
         .find(|scheme| scheme.id == id)
@@ -132,6 +145,23 @@ pub fn set_cursor_scheme(id: String) -> Result<(), String> {
     win::set_user_expand_string(CURSORS, "", &scheme.label)?;
     win::set_user_dword(CURSORS, "Scheme Source", SYSTEM_SCHEME)?;
     win::reload_cursors()
+}
+
+fn set_cursor_size(size: u32) -> Result<(), String> {
+    let pixels = CURSOR_BASE + (size - 1) * CURSOR_STEP;
+    // Where the Settings app shows the size it has.
+    win::set_user_dword(ACCESSIBILITY, "CursorSize", size)?;
+    if spi_set(SPI_SETCURSORSIZE, 0, as_param(pixels)).is_ok() {
+        return Ok(());
+    }
+    // Builds without that call still load the pointers at the saved size.
+    win::set_user_dword(CURSORS, "CursorBaseSize", pixels)?;
+    win::reload_cursors()
+}
+
+fn set_precision(on: bool) -> Result<(), String> {
+    let mut mouse = if on { PRECISION_ON } else { [0; 3] };
+    spi_set(SPI_SETMOUSE, 0, mouse.as_mut_ptr() as *mut _)
 }
 
 #[cfg(test)]

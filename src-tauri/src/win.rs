@@ -22,8 +22,8 @@ use windows::Win32::Graphics::Gdi::{
 use windows::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
 use windows::Win32::System::Registry::{
     HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ, REG_BINARY, REG_DWORD, REG_EXPAND_SZ,
-    REG_SZ, REG_VALUE_TYPE, RRF_RT_ANY, RegCloseKey, RegDeleteKeyValueW, RegEnumValueW, RegGetValueW,
-    RegOpenKeyExW, RegSetKeyValueW,
+    REG_SZ, REG_VALUE_TYPE, RRF_RT_ANY, RegCloseKey, RegDeleteKeyValueW, RegDeleteTreeW,
+    RegEnumKeyExW, RegEnumValueW, RegGetValueW, RegOpenKeyExW, RegSetKeyValueW,
 };
 use windows::Win32::System::Com::{
     COINIT_APARTMENTTHREADED, CoInitializeEx, CoUninitialize,
@@ -37,8 +37,8 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 };
 use windows::Win32::UI::Shell::{
     IShellItemImageFactory, QUNS_RUNNING_D3D_FULL_SCREEN, SHCreateItemFromParsingName,
-    SHLoadIndirectString, SHQueryUserNotificationState, SIIGBF_BIGGERSIZEOK, SIIGBF_ICONONLY,
-    ShellExecuteW,
+    SHLoadIndirectString, SHQueryUserNotificationState, SIIGBF, SIIGBF_BIGGERSIZEOK,
+    SIIGBF_ICONONLY, SIIGBF_RESIZETOFIT, ShellExecuteW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     EnumChildWindows, EnumWindows, FindWindowExW, FindWindowW, GW_OWNER, GWL_EXSTYLE,
@@ -486,6 +486,23 @@ pub fn read_image(path: &str) -> Result<String, String> {
 
 /// Icon of a file as a PNG data URL.
 pub fn file_icon(path: &str) -> Option<String> {
+    let size = SIZE {
+        cx: ICON_SIZE,
+        cy: ICON_SIZE,
+    };
+    shell_image(path, size, SIIGBF_ICONONLY | SIIGBF_BIGGERSIZEOK)
+}
+
+/// A small copy of a picture, as Explorer shows it, as a PNG data URL.
+pub fn file_thumbnail(path: &str, width: i32, height: i32) -> Option<String> {
+    let size = SIZE {
+        cx: width,
+        cy: height,
+    };
+    shell_image(path, size, SIIGBF_RESIZETOFIT)
+}
+
+fn shell_image(path: &str, size: SIZE, flags: SIIGBF) -> Option<String> {
     if !Path::new(path).exists() {
         return None;
     }
@@ -494,27 +511,19 @@ pub fn file_icon(path: &str) -> Option<String> {
     let _guard = ICON_LOCK.lock().unwrap_or_else(|error| error.into_inner());
     unsafe {
         let com = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
-        let icon = render_icon(path);
+        let image = render_shell_image(path, size, flags);
         if com.is_ok() {
             CoUninitialize();
         }
-        icon
+        image
     }
 }
 
-unsafe fn render_icon(path: &str) -> Option<String> {
+unsafe fn render_shell_image(path: &str, size: SIZE, flags: SIIGBF) -> Option<String> {
     unsafe {
         let factory: IShellItemImageFactory =
             SHCreateItemFromParsingName(&HSTRING::from(path), None).ok()?;
-        let bitmap = factory
-            .GetImage(
-                SIZE {
-                    cx: ICON_SIZE,
-                    cy: ICON_SIZE,
-                },
-                SIIGBF_ICONONLY | SIIGBF_BIGGERSIZEOK,
-            )
-            .ok()?;
+        let bitmap = factory.GetImage(size, flags).ok()?;
         let pixels = read_bitmap(bitmap);
         let _ = DeleteObject(HGDIOBJ(bitmap.0));
         let (width, height, pixels) = pixels?;
@@ -721,7 +730,12 @@ pub fn set_dwm_colorization(argb: u32) {
 
 /// Tells every window that the colors changed, as the Settings app does.
 pub fn broadcast_color_change() {
-    let area = w!("ImmersiveColorSet");
+    broadcast_setting_change("ImmersiveColorSet");
+}
+
+/// Tells every window that a group of settings changed, so they read it again.
+pub fn broadcast_setting_change(area: &str) {
+    let area = HSTRING::from(area);
     unsafe {
         let _ = SendMessageTimeoutW(
             HWND_BROADCAST,
@@ -766,6 +780,69 @@ pub fn set_user_expand_string(key: &str, name: &str, value: &str) -> Result<(), 
         .flat_map(u16::to_le_bytes)
         .collect();
     write_user_value(key, name, &RegValue { kind: REG_EXPAND_SZ.0, data })
+}
+
+pub fn set_user_string(key: &str, name: &str, value: &str) -> Result<(), String> {
+    let data: Vec<u8> = value
+        .encode_utf16()
+        .chain(Some(0))
+        .flat_map(u16::to_le_bytes)
+        .collect();
+    write_user_value(key, name, &RegValue { kind: REG_SZ.0, data })
+}
+
+pub fn user_key_exists(key: &str) -> bool {
+    let mut handle = HKEY::default();
+    unsafe {
+        let opened = RegOpenKeyExW(HKEY_CURRENT_USER, &HSTRING::from(key), None, KEY_READ, &mut handle);
+        if opened == ERROR_SUCCESS {
+            let _ = RegCloseKey(handle);
+        }
+        opened == ERROR_SUCCESS
+    }
+}
+
+/// Deletes a key of HKEY_CURRENT_USER with everything under it.
+pub fn delete_user_tree(key: &str) -> Result<(), String> {
+    let result = unsafe { RegDeleteTreeW(HKEY_CURRENT_USER, &HSTRING::from(key)) };
+    // A key that is already gone is what was asked for.
+    if result == ERROR_SUCCESS || result == ERROR_FILE_NOT_FOUND {
+        Ok(())
+    } else {
+        Err(format!(r"Não foi possível apagar {key} ({})", result.0))
+    }
+}
+
+/// The names of the keys right under a key of HKEY_CURRENT_USER.
+pub fn user_subkeys(key: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    let mut handle = HKEY::default();
+    unsafe {
+        let opened = RegOpenKeyExW(HKEY_CURRENT_USER, &HSTRING::from(key), None, KEY_READ, &mut handle);
+        if opened != ERROR_SUCCESS {
+            return names;
+        }
+        for index in 0.. {
+            let mut name = [0u16; 256];
+            let mut name_len = name.len() as u32;
+            let read = RegEnumKeyExW(
+                handle,
+                index,
+                Some(PWSTR(name.as_mut_ptr())),
+                &mut name_len,
+                None,
+                None,
+                None,
+                None,
+            );
+            if read != ERROR_SUCCESS {
+                break;
+            }
+            names.push(String::from_utf16_lossy(&name[..name_len as usize]));
+        }
+        let _ = RegCloseKey(handle);
+    }
+    names
 }
 
 /// The string values under a key of HKEY_LOCAL_MACHINE, as stored.

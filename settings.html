@@ -18,6 +18,34 @@
       <aside class="sidebar">
         <p class="brand">WinTint</p>
         <nav aria-label="Seções">
+          <div class="group" role="group" aria-labelledby="group-app">
+          <p class="group-head"><span id="group-app">WinTint</span></p>
+          <button type="button" data-nav="windows-colors">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1"/><rect x="13" y="4" width="7" height="7" rx="1"/><rect x="4" y="13" width="7" height="7" rx="1"/><rect x="13" y="13" width="7" height="7" rx="1"/></svg>
+            Cores do Windows
+          </button>
+          <button type="button" data-nav="desktop">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4M7 13l3.5-3.5 2.5 2.5 1.5-1.5L17 13"/></svg>
+            Área de trabalho
+          </button>
+          <button type="button" data-nav="taskbar">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M3 15.5h18M8 18h.01M12 18h.01M16 18h.01"/></svg>
+            Barra de tarefas
+          </button>
+          <button type="button" data-nav="files">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h4l2 2h9A1.5 1.5 0 0 1 21 9.5v8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z"/></svg>
+            Janelas e arquivos
+          </button>
+          <button type="button" data-nav="input">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6.5" y="3" width="11" height="18" rx="5.5"/><path d="M12 7v3.5"/></svg>
+            Mouse e teclado
+          </button>
+          <button type="button" data-nav="general">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.300 3h3.400l.5 2.400 1.600.9 2.300-.8 1.700 2.900-1.800 1.600v1.900l1.800 1.600-1.700 2.900-2.300-.8-1.600.9-.5 2.400h-3.400l-.5-2.400-1.600-.9-2.300.8-1.700-2.900 1.800-1.600V10L3.800 8.400l1.700-2.900 2.300.8 1.600-.9z"/><circle cx="12" cy="12" r="2.800"/></svg>
+            Geral
+          </button>
+          </div>
+
           <div class="group" role="group" aria-labelledby="group-dock">
           <label class="group-head" title="Ligar ou desligar a dock">
             <span id="group-dock">Dock</span>
@@ -50,18 +78,6 @@
           <button type="button" data-nav="advanced">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 7-5 5 5 5M16 7l5 5-5 5"/></svg>
             Avançado
-          </button>
-          </div>
-
-          <div class="group" role="group" aria-labelledby="group-app">
-          <p class="group-head"><span id="group-app">WinTint</span></p>
-          <button type="button" data-nav="windows-colors">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1"/><rect x="13" y="4" width="7" height="7" rx="1"/><rect x="4" y="13" width="7" height="7" rx="1"/><rect x="13" y="13" width="7" height="7" rx="1"/></svg>
-            Cores do Windows
-          </button>
-          <button type="button" data-nav="general">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.300 3h3.400l.5 2.400 1.600.9 2.300-.8 1.700 2.900-1.800 1.600v1.900l1.800 1.600-1.700 2.900-2.300-.8-1.600.9-.5 2.400h-3.400l-.5-2.400-1.600-.9-2.300.8-1.700-2.900 1.800-1.600V10L3.800 8.400l1.700-2.900 2.300.8 1.600-.9z"/><circle cx="12" cy="12" r="2.800"/></svg>
-            Geral
           </button>
           </div>
         </nav>
@@ -406,34 +422,269 @@
             <p class="hint">Alguns programas só trocam de cor quando são reabertos.</p>
           </section>
 
+          <section class="page" data-page="desktop" data-module="app">
+            <h1>Área de trabalho</h1>
+            <div class="cards">
+              <div class="card">
+                <h2>Papel de parede</h2>
+                <div class="wallpaper">
+                  <img id="wallpaper-preview" alt="" hidden />
+                  <span id="wallpaper-name"></span>
+                </div>
+                <div class="inline">
+                  <button id="choose-wallpaper" type="button">Escolher imagem...</button>
+                </div>
+                <label class="row">
+                  <span>Ajuste</span>
+                  <select data-tweak="wallpaperFit" aria-label="Ajuste do papel de parede">
+                    <option value="fill">Preencher</option>
+                    <option value="fit">Ajustar</option>
+                    <option value="stretch">Ampliar</option>
+                    <option value="tile">Lado a lado</option>
+                    <option value="center">Centralizar</option>
+                    <option value="span">Estender</option>
+                  </select>
+                </label>
+              </div>
+
+              <div class="card">
+                <label class="card-toggle">
+                  <h2>Ícones</h2>
+                  <input type="checkbox" class="switch" data-tweak="desktopIcons" aria-label="Mostrar os ícones da área de trabalho" />
+                </label>
+                <div>
+                  <label class="row">
+                    <span>Este Computador</span>
+                    <input type="checkbox" class="switch" data-tweak="iconComputer" />
+                  </label>
+                  <label class="row">
+                    <span>Lixeira</span>
+                    <input type="checkbox" class="switch" data-tweak="iconRecycleBin" />
+                  </label>
+                  <label class="row">
+                    <span>Pasta do usuário</span>
+                    <input type="checkbox" class="switch" data-tweak="iconUserFiles" />
+                  </label>
+                  <label class="row">
+                    <span>Rede</span>
+                    <input type="checkbox" class="switch" data-tweak="iconNetwork" />
+                  </label>
+                  <label class="row">
+                    <span>Painel de Controle</span>
+                    <input type="checkbox" class="switch" data-tweak="iconControlPanel" />
+                  </label>
+                </div>
+              </div>
+
+              <div class="card">
+                <h2>Efeitos visuais</h2>
+                <label class="row">
+                  <span>
+                    Transparência
+                    <small>Fundo translúcido no Iniciar e em alguns apps.</small>
+                  </span>
+                  <input type="checkbox" class="switch" data-tweak="transparency" />
+                </label>
+                <label class="row">
+                  <span>
+                    Animações
+                    <small>Ao abrir, minimizar e trocar de janela.</small>
+                  </span>
+                  <input type="checkbox" class="switch" data-tweak="animations" />
+                </label>
+              </div>
+            </div>
+            <p class="hint">
+              As opções destas páginas mudam o Windows na hora, como no Configurações, e continuam valendo
+              com o WinTint fechado.
+            </p>
+          </section>
+
+          <section class="page" data-page="taskbar" data-module="app">
+            <h1>Barra de tarefas</h1>
+            <p class="notice" data-show-when="dockHidesTaskbar">
+              A dock está escondendo a barra do Windows. Estas opções valem quando ela volta.
+            </p>
+            <div class="cards">
+              <div class="card">
+                <h2>Barra de tarefas</h2>
+                <h3>Ícones</h3>
+                <div class="segmented" role="radiogroup" aria-label="Alinhamento dos ícones">
+                  <label><input type="radio" name="taskbarAlignment" data-tweak="taskbarAlignment" value="left" /><span>À esquerda</span></label>
+                  <label><input type="radio" name="taskbarAlignment" data-tweak="taskbarAlignment" value="center" /><span>No centro</span></label>
+                </div>
+                <label class="row">
+                  <span>Pesquisa</span>
+                  <select data-tweak="taskbarSearch" aria-label="Pesquisa na barra de tarefas">
+                    <option value="hidden">Escondida</option>
+                    <option value="icon">Só o ícone</option>
+                    <option value="label">Ícone e nome</option>
+                    <option value="box">Caixa de pesquisa</option>
+                  </select>
+                </label>
+                <label class="row">
+                  <span>Juntar janelas</span>
+                  <select data-tweak="taskbarCombine" aria-label="Juntar as janelas do mesmo app">
+                    <option value="always">Sempre</option>
+                    <option value="full">Quando a barra encher</option>
+                    <option value="never">Nunca</option>
+                  </select>
+                </label>
+                <label class="row">
+                  <span>Visão de Tarefas</span>
+                  <input type="checkbox" class="switch" data-tweak="taskbarTaskView" />
+                </label>
+                <label class="row">
+                  <span>Segundos no relógio</span>
+                  <input type="checkbox" class="switch" data-tweak="taskbarSeconds" />
+                </label>
+                <label class="row">
+                  <span>
+                    Ocultar automaticamente
+                    <small>Aparece ao levar o mouse à borda.</small>
+                  </span>
+                  <input type="checkbox" class="switch" data-tweak="taskbarAutoHide" />
+                </label>
+              </div>
+
+              <div class="card">
+                <h2>Menu Iniciar</h2>
+                <label class="row">
+                  <span>Apps mais usados</span>
+                  <input type="checkbox" class="switch" data-tweak="startMostUsed" />
+                </label>
+                <label class="row">
+                  <span>
+                    Arquivos recentes
+                    <small>No Iniciar, no Explorador e nas listas de atalhos.</small>
+                  </span>
+                  <input type="checkbox" class="switch" data-tweak="startRecentFiles" />
+                </label>
+              </div>
+            </div>
+            <div class="inline">
+              <button type="button" data-restart-explorer>Reiniciar o Explorador</button>
+            </div>
+            <p class="hint">
+              Se alguma mudança não aparecer, reinicie o Explorador. A barra e as pastas abertas somem por
+              alguns segundos.
+            </p>
+          </section>
+
+          <section class="page" data-page="files" data-module="app">
+            <h1>Janelas e arquivos</h1>
+            <div class="cards">
+              <div class="card">
+                <h2>Janelas</h2>
+                <label class="row">
+                  <span>
+                    Ajustar janelas
+                    <small>Levar a janela até a borda da tela a organiza.</small>
+                  </span>
+                  <input type="checkbox" class="switch" data-tweak="snapWindows" />
+                </label>
+                <label class="row">
+                  <span>Sombra sob as janelas</span>
+                  <input type="checkbox" class="switch" data-tweak="windowShadows" />
+                </label>
+                <label class="row">
+                  <span>
+                    Conteúdo ao arrastar
+                    <small>Desligado, só o contorno da janela se move.</small>
+                  </span>
+                  <input type="checkbox" class="switch" data-tweak="dragFullWindows" />
+                </label>
+              </div>
+
+              <div class="card">
+                <h2>Explorador de arquivos</h2>
+                <h3>Abrir em</h3>
+                <div class="segmented" role="radiogroup" aria-label="Onde o Explorador abre">
+                  <label><input type="radio" name="explorerOpensTo" data-tweak="explorerOpensTo" value="home" /><span>Início</span></label>
+                  <label><input type="radio" name="explorerOpensTo" data-tweak="explorerOpensTo" value="thisPc" /><span>Este Computador</span></label>
+                </div>
+                <label class="row">
+                  <span>
+                    Extensões dos arquivos
+                    <small>Mostra o .jpg, o .pdf e outros no nome.</small>
+                  </span>
+                  <input type="checkbox" class="switch" data-tweak="fileExtensions" />
+                </label>
+                <label class="row">
+                  <span>Arquivos ocultos</span>
+                  <input type="checkbox" class="switch" data-tweak="hiddenFiles" />
+                </label>
+                <label class="row">
+                  <span>
+                    Menu clássico do botão direito
+                    <small>Sem o "Mostrar mais opções". Vale depois de reiniciar o Explorador.</small>
+                  </span>
+                  <input type="checkbox" class="switch" data-tweak="classicContextMenu" />
+                </label>
+                <div class="inline">
+                  <button type="button" data-restart-explorer>Reiniciar o Explorador</button>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="page" data-page="input" data-module="app">
+            <h1>Mouse e teclado</h1>
+            <div class="cards">
+              <div class="card">
+                <h2>Ponteiro</h2>
+                <label class="row">
+                  <span>Esquema</span>
+                  <select data-tweak="cursorScheme" data-choices="cursorSchemes" aria-label="Esquema do ponteiro"></select>
+                </label>
+                <label class="slider">
+                  <span>Tamanho</span>
+                  <input type="range" data-tweak="cursorSize" data-format="cursor" min="1" max="15" step="1" />
+                  <output></output>
+                </label>
+              </div>
+
+              <div class="card">
+                <h2>Mouse</h2>
+                <label class="slider">
+                  <span>Velocidade</span>
+                  <input type="range" data-tweak="mouseSpeed" data-format="level" min="1" max="20" step="1" />
+                  <output></output>
+                </label>
+                <label class="slider">
+                  <span>Rolagem</span>
+                  <input type="range" data-tweak="scrollLines" data-format="lines" min="1" max="20" step="1" />
+                  <output></output>
+                </label>
+                <label class="row">
+                  <span>
+                    Precisão aprimorada
+                    <small>O ponteiro anda mais quando o mouse se move rápido.</small>
+                  </span>
+                  <input type="checkbox" class="switch" data-tweak="mousePrecision" />
+                </label>
+              </div>
+
+              <div class="card">
+                <h2>Teclado</h2>
+                <p class="hint">Quanto o Windows espera e quantas vezes repete a letra ao segurar uma tecla.</p>
+                <label class="slider">
+                  <span>Espera</span>
+                  <input type="range" data-tweak="keyboardDelay" data-format="keyDelay" min="0" max="3" step="1" />
+                  <output></output>
+                </label>
+                <label class="slider">
+                  <span>Repetição</span>
+                  <input type="range" data-tweak="keyboardSpeed" data-format="keyRepeat" min="0" max="31" step="1" />
+                  <output></output>
+                </label>
+              </div>
+            </div>
+          </section>
+
           <section class="page" data-page="general" data-module="app">
             <h1>Geral</h1>
             <div class="cards">
-              <div class="card">
-                <h2>Windows</h2>
-                <label class="row">
-                  <span>
-                    Efeitos de transparência
-                    <small>Fundo translúcido no Iniciar e em alguns apps.</small>
-                  </span>
-                  <input id="tweak-transparency" type="checkbox" class="switch" />
-                </label>
-                <label class="row">
-                  <span>
-                    Ícones da área de trabalho
-                    <small>Mostra ou esconde os atalhos.</small>
-                  </span>
-                  <input id="tweak-icons" type="checkbox" class="switch" />
-                </label>
-                <label class="row">
-                  <span>Cursor do mouse</span>
-                  <select id="tweak-cursor" aria-label="Esquema do cursor do mouse"></select>
-                </label>
-                <p class="hint">
-                  Mudam o Windows na hora, como no Configurações, e continuam valendo com o WinTint fechado.
-                </p>
-              </div>
-
               <div class="card">
                 <h2>Brilho</h2>
                 <div id="screens" class="screens">
@@ -446,6 +697,14 @@
                   Escurece pelo próprio Windows, em qualquer monitor, até a metade do brilho dele. Com HDR
                   ligado, o Windows ignora este ajuste.
                 </p>
+              </div>
+
+              <div class="card">
+                <h2>Sons do sistema</h2>
+                <label class="row">
+                  <span>Esquema</span>
+                  <select data-tweak="soundScheme" data-choices="soundSchemes" aria-label="Esquema de sons do sistema"></select>
+                </label>
               </div>
 
               <div class="card">

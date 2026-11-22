@@ -68,6 +68,8 @@ nav {
   gap: 18px;
   min-height: 0;
   overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
 }
 
 nav button {
@@ -119,6 +121,17 @@ nav svg {
 
 nav button[aria-current="page"] svg {
   color: var(--accent);
+}
+
+/* Short windows fit more of the menu before it scrolls. */
+@media (max-height: 640px) {
+  nav {
+    gap: 12px;
+  }
+
+  nav button {
+    padding-block: 6px;
+  }
 }
 
 /* One group per module, with the module's on/off switch in its heading. */
@@ -334,6 +347,19 @@ select {
   gap: 12px;
   min-height: 34px;
   cursor: pointer;
+}
+
+/* The text keeps its room and a list with long names shrinks instead. */
+.row > span {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.row > select {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 70%;
+  text-overflow: ellipsis;
 }
 
 .switch {
@@ -975,12 +1001,57 @@ textarea {
   margin-left: 6px;
 }
 
-/* General page */
-
-.card > .row + .row {
-  margin-top: 6px;
-}
+/* Spacing between controls inside a card */
 
 .card > .row + .inline {
   margin-top: 12px;
+}
+
+.row + .row,
+.card > .slider + .row,
+.card > .row + .slider {
+  margin-top: 6px;
+}
+
+.card > .segmented + .row {
+  margin-top: 10px;
+}
+
+.card > .inline + .row {
+  margin-top: 10px;
+}
+
+/* Windows pages */
+
+.notice {
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.wallpaper {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.wallpaper img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: 9px;
+  background: var(--field);
+  object-fit: cover;
+}
+
+.wallpaper span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
